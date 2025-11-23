@@ -7,4 +7,4 @@ find_package(GTest REQUIRED)
 include_directories(${GTEST_INCLUDE_DIRS})
 
 add_executable(sample_test src/main.cc)
-target_link_libraries(sample_test GTest::GTest GTest::Main pthread)
+target_link_libraries(sample_test GTest::GTest GTest::Main GTest::gmock pthread)
