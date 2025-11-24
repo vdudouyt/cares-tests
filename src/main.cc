@@ -276,6 +276,27 @@ TEST(LibraryTest, ParseAReplyNoData) {
   ares_free_hostent(host);
 }
 
+TEST(LibraryTest, ParseAReplyVariantA) {
+  DNSPacket pkt;
+  pkt.set_qid(6366).set_rd().set_ra()
+    .add_question(new DNSQuestion("mit.edu", T_A))
+    .add_answer(new DNSARR("mit.edu", 52, {18,7,22,69}))
+    .add_auth(new DNSNsRR("mit.edu", 292, "W20NS.mit.edu"))
+    .add_auth(new DNSNsRR("mit.edu", 292, "BITSY.mit.edu"))
+    .add_auth(new DNSNsRR("mit.edu", 292, "STRAWB.mit.edu"))
+    .add_additional(new DNSARR("STRAWB.mit.edu", 292, {18,71,0,151}));
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[2];
+  int count = 2;
+  std::vector<byte> data = pkt.data();
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(1, count);
+  EXPECT_EQ("18.7.22.69", AddressToString(&(info[0].ipaddr), 4));
+  EXPECT_EQ(52, info[0].ttl);
+  ares_free_hostent(host);
+}
+
 std::string HexDump(std::vector<byte> data) {
   std::stringstream ss;
   for (size_t ii = 0; ii < data.size();  ii++) {
