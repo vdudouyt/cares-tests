@@ -9,6 +9,9 @@ extern "C" {
 #include "impl.h"
 }
 
+#define ares_parse_a_reply impl.ares_parse_a_reply
+#define ares_free_hostent impl.ares_free_hostent
+
 using ::testing::_;
 using ::testing::Return;
 using byte = uint8_t;
@@ -174,7 +177,7 @@ TEST(LibraryTest, ParseAReplyOK) {
   struct hostent *host = nullptr;
   struct ares_addrttl info[5];
   int count = 5;
-  EXPECT_EQ(ARES_SUCCESS, impl.ares_parse_a_reply(data.data(), (int)data.size(),
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
                                              &host, info, &count));
   EXPECT_EQ(1, count);
   EXPECT_EQ(0x01020304, info[0].ttl);
@@ -185,15 +188,59 @@ TEST(LibraryTest, ParseAReplyOK) {
   std::stringstream ss;
   ss << HostEnt(host);
   EXPECT_EQ("{'example.com' aliases=[] addrs=[2.3.4.5]}", ss.str());
-  impl.ares_free_hostent(host);
+  ares_free_hostent(host);
 
   // Repeat without providing a hostent
-  EXPECT_EQ(ARES_SUCCESS, impl.ares_parse_a_reply(data.data(), (int)data.size(),
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
                                              nullptr, info, &count));
   EXPECT_EQ(1, count);
   EXPECT_EQ(0x01020304, info[0].ttl);
   EXPECT_EQ(expected_addr, info[0].ipaddr.s_addr);
   EXPECT_EQ("2.3.4.5", AddressToString(&(info[0].ipaddr), 4));
+}
+
+TEST(LibraryTest, ParseMalformedAReply) {
+  std::vector<byte> data = {
+    0x12, 0x34,  // [0:2) qid
+    0x84, // [2] response + query + AA + not-TC + not-RD
+    0x00, // [3] not-RA + not-Z + not-AD + not-CD + rc=NoError
+    0x00, 0x01,  // [4:6) num questions
+    0x00, 0x02,  // [6:8) num answer RRs
+    0x00, 0x00,  // [8:10) num authority RRs
+    0x00, 0x00,  // [10:12) num additional RRs
+    // Question
+    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', // [12:20)
+    0x03, 'c', 'o', 'm', // [20,24)
+    0x00, // [24]
+    0x00, 0x01,  // [25:26) type A
+    0x00, 0x01,  // [27:29) class IN
+    // Answer 1
+    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', // [29:37)
+    0x03, 'c', 'o', 'm', // [37:41)
+    0x00, // [41]
+    0x00, 0x01,  // [42:44) RR type
+    0x00, 0x01,  // [44:46) class IN
+    0x01, 0x02, 0x03, 0x04, // [46:50) TTL
+    0x00, 0x04,  // [50:52) rdata length
+    0x02, 0x03, 0x04, 0x05, // [52,56)
+  };
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[2];
+  int count = 2;
+
+  // Invalid RR-len.
+  std::vector<byte> invalid_rrlen(data);
+  invalid_rrlen[51] = 180;
+  EXPECT_EQ(ARES_EBADRESP, ares_parse_a_reply(invalid_rrlen.data(), (int)invalid_rrlen.size(),
+                                              &host, info, &count));
+
+  // Truncate mid-question.
+  EXPECT_EQ(ARES_EBADRESP, ares_parse_a_reply(data.data(), 26,
+                                              &host, info, &count));
+
+  // Truncate mid-answer.
+  EXPECT_EQ(ARES_EBADRESP, ares_parse_a_reply(data.data(), 42,
+                                              &host, info, &count));
 }
 
 std::string HexDump(std::vector<byte> data) {
