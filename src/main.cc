@@ -15,7 +15,6 @@ extern "C" {
 
 using ::testing::_;
 using ::testing::Return;
-using byte = uint8_t;
 
 std::string AddressToString(const void* vaddr, int len);
 

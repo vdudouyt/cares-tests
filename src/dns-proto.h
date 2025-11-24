@@ -4,8 +4,6 @@
 #include <vector>
 #include <arpa/nameser.h>
 
-using byte = uint8_t;
-
 #ifndef O_QUERY
 #  define O_QUERY 0 /* ns_o_query */                                                                                                       
 #endif
@@ -22,6 +20,34 @@ using byte = uint8_t;
 #  define O_UPDATE 5 /* ns_o_update */
 #endif
 
+typedef unsigned char byte;
+
+std::string           HexDump(std::vector<byte> data);
+std::string           HexDump(const byte *data, int len);
+std::string           HexDump(const char *data, int len);
+
+std::string           StatusToString(int status);
+std::string           RcodeToString(int rcode);
+std::string           RRTypeToString(int rrtype);
+std::string           ClassToString(int qclass);
+std::string           AddressToString(const void *addr, int len);
+
+// Convert DNS protocol data to strings.
+// Note that these functions are not defensive; they assume
+// a validly formatted input, and so should not be used on
+// externally-determined inputs.
+std::string           PacketToString(const std::vector<byte> &packet);
+std::string QuestionToString(const std::vector<byte> &packet, const byte **data,
+                             int *len);
+std::string RRToString(const std::vector<byte> &packet, const byte **data,
+                       int *len);
+
+
+// Manipulate DNS protocol data.
+void        PushInt32(std::vector<byte> *data, int value);
+void        PushInt16(std::vector<byte> *data, int value);
+std::vector<byte> EncodeString(const std::string &name);
+
 struct DNSQuestion {
   DNSQuestion(const std::string &name, int rrtype, int qclass)
     : name_(name), rrtype_(rrtype), qclass_(qclass)
@@ -37,22 +63,10 @@ struct DNSQuestion {
   {
   }
 
-  virtual std::vector<byte> data(const char              *request_name,
-                                 const ares_dns_record_t *dnsrec) const;
-
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const
-  {
-    return data(nullptr, dnsrec);
-  }
-
-  virtual std::vector<byte> data() const
-  {
-    return data(nullptr, nullptr);
-  }
-
-  std::string name_;
-  int         rrtype_;
-  int         qclass_;
+  virtual std::vector<byte> data() const;
+  std::string               name_;
+  int                       rrtype_;
+  int                       qclass_;
 };
 
 struct DNSRR : public DNSQuestion {
@@ -70,7 +84,7 @@ struct DNSRR : public DNSQuestion {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const = 0;
+  virtual std::vector<byte> data() const = 0;
   int                       ttl_;
 };
 
@@ -87,7 +101,7 @@ struct DNSAddressRR : public DNSRR {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   std::vector<byte>         addr_;
 };
 
@@ -122,7 +136,7 @@ struct DNSSingleNameRR : public DNSRR {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   std::string               other_;
 };
 
@@ -154,7 +168,7 @@ struct DNSTxtRR : public DNSRR {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   std::vector<std::string>  txt_;
 };
 
@@ -164,7 +178,7 @@ struct DNSMxRR : public DNSRR {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   int                       pref_;
   std::string               other_;
 };
@@ -177,7 +191,7 @@ struct DNSSrvRR : public DNSRR {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   int                       prio_;
   int                       weight_;
   int                       port_;
@@ -191,7 +205,7 @@ struct DNSUriRR : public DNSRR {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   int                       prio_;
   int                       weight_;
   std::string               target_;
@@ -206,7 +220,7 @@ struct DNSSoaRR : public DNSRR {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   std::string               nsname_;
   std::string               rname_;
   int                       serial_;
@@ -225,7 +239,7 @@ struct DNSNaptrRR : public DNSRR {
   {
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   int                       order_;
   int                       pref_;
   std::string               flags_;
@@ -240,23 +254,13 @@ struct DNSOption {
 };
 
 struct DNSOptRR : public DNSRR {
-  DNSOptRR(unsigned char extrcode, unsigned char version, unsigned short flags,
-           int udpsize, std::vector<byte> client_cookie,
-           std::vector<byte> server_cookie, bool expect_server_cookie)
-    : DNSRR("", T_OPT, static_cast<int>(udpsize),
-            ((int)extrcode) << 24 | ((int)version) << 16 |
-              ((int)flags) /* ttl */)
+  DNSOptRR(int extrcode, int udpsize)
+    : DNSRR("", T_OPT, static_cast<int>(udpsize), extrcode)
   {
-    client_cookie_        = client_cookie;
-    server_cookie_        = server_cookie;
-    expect_server_cookie_ = expect_server_cookie;
   }
 
-  virtual std::vector<byte> data(const ares_dns_record_t *dnsrec) const;
+  virtual std::vector<byte> data() const;
   std::vector<DNSOption>    opts_;
-  std::vector<byte>         client_cookie_;
-  std::vector<byte>         server_cookie_;
-  bool                      expect_server_cookie_;
 };
 
 struct DNSPacket {
@@ -353,13 +357,7 @@ struct DNSPacket {
   }
 
   // Return the encoded packet.
-  std::vector<byte> data(const char              *request_name,
-                         const ares_dns_record_t *dnsrec) const;
-
-  std::vector<byte> data() const
-  {
-    return data(nullptr, nullptr);
-  }
+  std::vector<byte>                         data() const;
 
   int                                       qid_;
   bool                                      response_;
