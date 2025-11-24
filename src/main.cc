@@ -5,6 +5,10 @@
 #include <cstddef>
 #include <netdb.h>
 
+extern "C" {
+#include "impl.h"
+}
+
 using ::testing::_;
 using ::testing::Return;
 using byte = uint8_t;
@@ -170,7 +174,7 @@ TEST(LibraryTest, ParseAReplyOK) {
   struct hostent *host = nullptr;
   struct ares_addrttl info[5];
   int count = 5;
-  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+  EXPECT_EQ(ARES_SUCCESS, impl.ares_parse_a_reply(data.data(), (int)data.size(),
                                              &host, info, &count));
   EXPECT_EQ(1, count);
   EXPECT_EQ(0x01020304, info[0].ttl);
@@ -181,10 +185,10 @@ TEST(LibraryTest, ParseAReplyOK) {
   std::stringstream ss;
   ss << HostEnt(host);
   EXPECT_EQ("{'example.com' aliases=[] addrs=[2.3.4.5]}", ss.str());
-  ares_free_hostent(host);
+  impl.ares_free_hostent(host);
 
   // Repeat without providing a hostent
-  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+  EXPECT_EQ(ARES_SUCCESS, impl.ares_parse_a_reply(data.data(), (int)data.size(),
                                              nullptr, info, &count));
   EXPECT_EQ(1, count);
   EXPECT_EQ(0x01020304, info[0].ttl);
@@ -235,6 +239,13 @@ std::string AddressToString(const void* vaddr, int len) {
 }
 
 int main(int argc, char **argv) {
+    if(argc != 2) {
+        fprintf(stderr, "Wrong usage\n");
+        exit(-1);
+    }
     ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+    load_cares_impl(argv[1]);
+    int res = RUN_ALL_TESTS();
+    unload_cares_impl();
+    return res;
 }
