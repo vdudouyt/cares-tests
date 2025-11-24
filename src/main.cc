@@ -249,6 +249,33 @@ TEST(LibraryTest, ParseMalformedAReply) {
                                               &host, info, &count));
 }
 
+TEST(LibraryTest, ParseAReplyNoData) {
+  DNSPacket pkt;
+  pkt.set_qid(0x1234).set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_A));
+  std::vector<byte> data = pkt.data();
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[2];
+  int count = 2;
+  EXPECT_EQ(ARES_ENODATA, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(0, count);
+  EXPECT_EQ(nullptr, host);
+
+  // Again but with a CNAME.
+  pkt.add_answer(new DNSCnameRR("example.com", 200, "c.example.com"));
+  data = pkt.data();
+  // Expect success as per https://github.com/c-ares/c-ares/commit/2c63440127feed70ccefb148b8f938a2df6c15f8
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(0, count);
+  EXPECT_NE(nullptr, host);
+  std::stringstream ss;
+  ss << HostEnt(host);
+  EXPECT_EQ("{'c.example.com' aliases=[example.com] addrs=[]}", ss.str());
+  ares_free_hostent(host);
+}
+
 std::string HexDump(std::vector<byte> data) {
   std::stringstream ss;
   for (size_t ii = 0; ii < data.size();  ii++) {
