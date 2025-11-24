@@ -4,6 +4,7 @@
 #include <ares.h>
 #include <cstddef>
 #include <netdb.h>
+#include "dns-proto.h"
 
 extern "C" {
 #include "impl.h"
@@ -141,6 +142,11 @@ TEST_F(LolTest, Add) {
 }
 
 TEST(LibraryTest, ParseAReplyOK) {
+  DNSPacket pkt;
+  pkt.set_qid(0x1234).set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_A))
+    .add_answer(new DNSARR("example.com", 0x01020304, {2,3,4,5}))
+    .add_answer(new DNSAaaaRR("example.com", 0x01020304, {0,0,0,0,0,0,0,0,0,0,0,0,2,3,4,5}));
   std::vector<byte> data = {
     0x12, 0x34,  // qid
     0x84, // response + query + AA + not-TC + not-RD
@@ -174,6 +180,7 @@ TEST(LibraryTest, ParseAReplyOK) {
     0x00, 0x10,  // rdata length
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x03, 0x04, 0x05,
   };
+  EXPECT_EQ(data, pkt.data());
   struct hostent *host = nullptr;
   struct ares_addrttl info[5];
   int count = 5;

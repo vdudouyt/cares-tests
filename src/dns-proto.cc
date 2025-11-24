@@ -1,0 +1,354 @@
+/* MIT License
+ *
+ * Copyright (c) The c-ares project and its contributors
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the next
+ * paragraph) shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+#include "ares.h"
+#include "dns-proto.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <sstream>
+
+
+std::string StatusToString(int status) {
+  switch (status) {
+  case ARES_SUCCESS: return "ARES_SUCCESS";
+  case ARES_ENODATA: return "ARES_ENODATA";
+  case ARES_EFORMERR: return "ARES_EFORMERR";
+  case ARES_ESERVFAIL: return "ARES_ESERVFAIL";
+  case ARES_ENOTFOUND: return "ARES_ENOTFOUND";
+  case ARES_ENOTIMP: return "ARES_ENOTIMP";
+  case ARES_EREFUSED: return "ARES_EREFUSED";
+  case ARES_EBADQUERY: return "ARES_EBADQUERY";
+  case ARES_EBADNAME: return "ARES_EBADNAME";
+  case ARES_EBADFAMILY: return "ARES_EBADFAMILY";
+  case ARES_EBADRESP: return "ARES_EBADRESP";
+  case ARES_ECONNREFUSED: return "ARES_ECONNREFUSED";
+  case ARES_ETIMEOUT: return "ARES_ETIMEOUT";
+  case ARES_EOF: return "ARES_EOF";
+  case ARES_EFILE: return "ARES_EFILE";
+  case ARES_ENOMEM: return "ARES_ENOMEM";
+  case ARES_EDESTRUCTION: return "ARES_EDESTRUCTION";
+  case ARES_EBADSTR: return "ARES_EBADSTR";
+  case ARES_EBADFLAGS: return "ARES_EBADFLAGS";
+  case ARES_ENONAME: return "ARES_ENONAME";
+  case ARES_EBADHINTS: return "ARES_EBADHINTS";
+  case ARES_ENOTINITIALIZED: return "ARES_ENOTINITIALIZED";
+  case ARES_ELOADIPHLPAPI: return "ARES_ELOADIPHLPAPI";
+  case ARES_EADDRGETNETWORKPARAMS: return "ARES_EADDRGETNETWORKPARAMS";
+  case ARES_ECANCELLED: return "ARES_ECANCELLED";
+  default: return "UNKNOWN";
+  }
+}
+
+std::string RcodeToString(int rcode) {
+  switch (rcode) {
+  case NOERROR: return "NOERROR";
+  case FORMERR: return "FORMERR";
+  case SERVFAIL: return "SERVFAIL";
+  case NXDOMAIN: return "NXDOMAIN";
+  case NOTIMP: return "NOTIMP";
+  case REFUSED: return "REFUSED";
+  case YXDOMAIN: return "YXDOMAIN";
+  case YXRRSET: return "YXRRSET";
+  case NXRRSET: return "NXRRSET";
+  case NOTAUTH: return "NOTAUTH";
+  case NOTZONE: return "NOTZONE";
+  default: return "UNKNOWN";
+  }
+}
+
+std::string RRTypeToString(int rrtype) {
+  switch (rrtype) {
+  case T_A: return "A";
+  case T_NS: return "NS";
+  case T_MD: return "MD";
+  case T_MF: return "MF";
+  case T_CNAME: return "CNAME";
+  case T_SOA: return "SOA";
+  case T_MB: return "MB";
+  case T_MG: return "MG";
+  case T_MR: return "MR";
+  case T_NULL: return "NULL";
+  case T_WKS: return "WKS";
+  case T_PTR: return "PTR";
+  case T_HINFO: return "HINFO";
+  case T_MINFO: return "MINFO";
+  case T_MX: return "MX";
+  case T_TXT: return "TXT";
+  case T_RP: return "RP";
+  case T_AFSDB: return "AFSDB";
+  case T_X25: return "X25";
+  case T_ISDN: return "ISDN";
+  case T_RT: return "RT";
+  case T_NSAP: return "NSAP";
+  case T_NSAP_PTR: return "NSAP_PTR";
+  case T_SIG: return "SIG";
+  case T_KEY: return "KEY";
+  case T_PX: return "PX";
+  case T_GPOS: return "GPOS";
+  case T_AAAA: return "AAAA";
+  case T_LOC: return "LOC";
+  case T_NXT: return "NXT";
+  case T_EID: return "EID";
+  case T_NIMLOC: return "NIMLOC";
+  case T_SRV: return "SRV";
+  case T_ATMA: return "ATMA";
+  case T_NAPTR: return "NAPTR";
+  case T_KX: return "KX";
+  case T_CERT: return "CERT";
+  case T_A6: return "A6";
+  case T_DNAME: return "DNAME";
+  case T_SINK: return "SINK";
+  case T_OPT: return "OPT";
+  case T_APL: return "APL";
+  case T_DS: return "DS";
+  case T_SSHFP: return "SSHFP";
+  case T_RRSIG: return "RRSIG";
+  case T_NSEC: return "NSEC";
+  case T_DNSKEY: return "DNSKEY";
+  case T_TKEY: return "TKEY";
+  case T_TSIG: return "TSIG";
+  case T_IXFR: return "IXFR";
+  case T_AXFR: return "AXFR";
+  case T_MAILB: return "MAILB";
+  case T_MAILA: return "MAILA";
+  case T_ANY: return "ANY";
+  case T_URI: return "URI";
+  default: return "UNKNOWN";
+  }
+}
+
+std::string ClassToString(int qclass) {
+  switch (qclass) {
+  case C_IN: return "IN";
+  case C_CHAOS: return "CHAOS";
+  case C_HS: return "HESIOD";
+  case C_NONE: return "NONE";
+  case C_ANY: return "ANY";
+  default: return "UNKNOWN";
+  }
+}
+
+void PushInt32(std::vector<byte>* data, int value) {
+  data->push_back((byte)(((unsigned int)value & 0xff000000) >> 24));
+  data->push_back((byte)(((unsigned int)value & 0x00ff0000) >> 16));
+  data->push_back((byte)(((unsigned int)value & 0x0000ff00) >> 8));
+  data->push_back((byte)(value & 0x000000ff));
+}
+
+void PushInt16(std::vector<byte>* data, int value) {
+  data->push_back((byte)((value & 0xff00) >> 8));
+  data->push_back((byte)value & 0x00ff);
+}
+
+std::vector<byte> EncodeString(const std::string& name) {
+  std::vector<byte> data;
+  std::stringstream ss(name);
+  std::string label;
+  // TODO: cope with escapes
+  while (std::getline(ss, label, '.')) {
+    /* Label length of 0 indicates the end, and we always push an end
+     * terminator, so don't do it twice */
+    if (label.length() == 0)
+      break;
+    data.push_back((byte)label.length());
+    data.insert(data.end(), label.begin(), label.end());
+  }
+  data.push_back(0);
+  return data;
+}
+
+std::vector<byte> DNSQuestion::data() const {
+  std::vector<byte> data;
+  std::vector<byte> encname = EncodeString(name_);
+  data.insert(data.end(), encname.begin(), encname.end());
+  PushInt16(&data, rrtype_);
+  PushInt16(&data, qclass_);
+  return data;
+}
+
+std::vector<byte> DNSRR::data() const {
+  std::vector<byte> data = DNSQuestion::data();
+  PushInt32(&data, ttl_);
+  return data;
+}
+
+std::vector<byte> DNSSingleNameRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  std::vector<byte> encname = EncodeString(other_);
+  int len = (int)encname.size();
+  PushInt16(&data, len);
+  data.insert(data.end(), encname.begin(), encname.end());
+  return data;
+}
+
+std::vector<byte> DNSTxtRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  int len = 0;
+  for (const std::string& txt : txt_) {
+    len += (1 + (int)txt.size());
+  }
+  PushInt16(&data, len);
+  for (const std::string& txt : txt_) {
+    data.push_back((byte)txt.size());
+    data.insert(data.end(), txt.begin(), txt.end());
+  }
+  return data;
+}
+
+std::vector<byte> DNSMxRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  std::vector<byte> encname = EncodeString(other_);
+  int len = 2 + (int)encname.size();
+  PushInt16(&data, len);
+  PushInt16(&data, pref_);
+  data.insert(data.end(), encname.begin(), encname.end());
+  return data;
+}
+
+std::vector<byte> DNSSrvRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  std::vector<byte> encname = EncodeString(target_);
+  int len = 6 + (int)encname.size();
+  PushInt16(&data, len);
+  PushInt16(&data, prio_);
+  PushInt16(&data, weight_);
+  PushInt16(&data, port_);
+  data.insert(data.end(), encname.begin(), encname.end());
+  return data;
+}
+
+std::vector<byte> DNSUriRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  int len = 4 + (int)target_.size();
+  PushInt16(&data, len);
+  PushInt16(&data, prio_);
+  PushInt16(&data, weight_);
+  data.insert(data.end(), target_.begin(), target_.end());
+  return data;
+}
+
+std::vector<byte> DNSAddressRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  int len = (int)addr_.size();
+  PushInt16(&data, len);
+  data.insert(data.end(), addr_.begin(), addr_.end());
+  return data;
+}
+
+std::vector<byte> DNSSoaRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  std::vector<byte> encname1 = EncodeString(nsname_);
+  std::vector<byte> encname2 = EncodeString(rname_);
+  int len = (int)encname1.size() + (int)encname2.size() + 5*4;
+  PushInt16(&data, len);
+  data.insert(data.end(), encname1.begin(), encname1.end());
+  data.insert(data.end(), encname2.begin(), encname2.end());
+  PushInt32(&data, serial_);
+  PushInt32(&data, refresh_);
+  PushInt32(&data, retry_);
+  PushInt32(&data, expire_);
+  PushInt32(&data, minimum_);
+  return data;
+}
+
+std::vector<byte> DNSOptRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  int len = 0;
+  for (const DNSOption& opt : opts_) {
+    len += (4 + (int)opt.data_.size());
+  }
+  PushInt16(&data, len);
+  for (const DNSOption& opt : opts_) {
+    PushInt16(&data, opt.code_);
+    PushInt16(&data, (int)opt.data_.size());
+    data.insert(data.end(), opt.data_.begin(), opt.data_.end());
+  }
+  return data;
+}
+
+std::vector<byte> DNSNaptrRR::data() const {
+  std::vector<byte> data = DNSRR::data();
+  std::vector<byte> encname = EncodeString(replacement_);
+  int len = (4 + 1 + (int)flags_.size() + 1 + (int)service_.size() + 1 + (int)regexp_.size() + (int)encname.size());
+  PushInt16(&data, len);
+  PushInt16(&data, order_);
+  PushInt16(&data, pref_);
+  data.push_back((byte)flags_.size());
+  data.insert(data.end(), flags_.begin(), flags_.end());
+  data.push_back((byte)service_.size());
+  data.insert(data.end(), service_.begin(), service_.end());
+  data.push_back((byte)regexp_.size());
+  data.insert(data.end(), regexp_.begin(), regexp_.end());
+  data.insert(data.end(), encname.begin(), encname.end());
+  return data;
+}
+
+std::vector<byte> DNSPacket::data() const {
+  std::vector<byte> data;
+  PushInt16(&data, qid_);
+  byte b = 0x00;
+  if (response_) b |= 0x80;
+  b |= ((opcode_ & 0x0f) << 3);
+  if (aa_) b |= 0x04;
+  if (tc_) b |= 0x02;
+  if (rd_) b |= 0x01;
+  data.push_back(b);
+  b = 0x00;
+  if (ra_) b |= 0x80;
+  if (z_) b |= 0x40;
+  if (ad_) b |= 0x20;
+  if (cd_) b |= 0x10;
+  b |= (rcode_ & 0x0f);
+  data.push_back(b);
+
+  int count = (int)questions_.size();
+  PushInt16(&data, count);
+  count = (int)answers_.size();
+  PushInt16(&data, count);
+  count = (int)auths_.size();
+  PushInt16(&data, count);
+  count = (int)adds_.size();
+  PushInt16(&data, count);
+
+  for (const std::unique_ptr<DNSQuestion>& question : questions_) {
+    std::vector<byte> qdata = question->data();
+    data.insert(data.end(), qdata.begin(), qdata.end());
+  }
+  for (const std::unique_ptr<DNSRR>& rr : answers_) {
+    std::vector<byte> rrdata = rr->data();
+    data.insert(data.end(), rrdata.begin(), rrdata.end());
+  }
+  for (const std::unique_ptr<DNSRR>& rr : auths_) {
+    std::vector<byte> rrdata = rr->data();
+    data.insert(data.end(), rrdata.begin(), rrdata.end());
+  }
+  for (const std::unique_ptr<DNSRR>& rr : adds_) {
+    std::vector<byte> rrdata = rr->data();
+    data.insert(data.end(), rrdata.begin(), rrdata.end());
+  }
+  return data;
+}
