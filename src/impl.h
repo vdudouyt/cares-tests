@@ -14,6 +14,7 @@ typedef struct {
                                      int                  *naddrttls);
    void (*ares_free_data)(void *dataptr);
    int (*ares_parse_caa_reply)(const unsigned char *abuf, int alen, struct ares_caa_reply **caa_out);
+   int (*ares_parse_mx_reply)(const unsigned char *abuf, int alen, struct ares_mx_reply **mx_out);
 } ares_impl_t;
 
 extern ares_impl_t impl;

@@ -12,6 +12,7 @@ void load_cares_impl(const char *path) {
    impl.ares_parse_aaaa_reply = dlsym(handle, "ares_parse_aaaa_reply");
    impl.ares_free_data = dlsym(handle, "ares_free_data");
    impl.ares_parse_caa_reply = dlsym(handle, "ares_parse_caa_reply");
+   impl.ares_parse_mx_reply = dlsym(handle, "ares_parse_mx_reply");
 }
 
 void unload_cares_impl() {
