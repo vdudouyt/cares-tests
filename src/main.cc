@@ -18,27 +18,6 @@ using ::testing::Return;
 
 std::string AddressToString(const void* vaddr, int len);
 
-void arestest_strtolower(char *dest, const char *src, size_t dest_size)
-{
-  size_t len;
-
-  if (dest == NULL)
-    return;
-
-  memset(dest, 0, dest_size);
-
-  if (src == NULL)
-    return;
-
-  len = strlen(src);
-  if (len >= dest_size)
-    return;
-
-  for (size_t i = 0; i<len; i++) {
-    dest[i] = (char)tolower(src[i]);
-  }
-}
-
 struct HostEnt {
   HostEnt() : addrtype_(-1)
   {
@@ -55,13 +34,8 @@ HostEnt::HostEnt(const struct hostent *hostent) : addrtype_(-1) {
   if (!hostent)
     return;
 
-  if (hostent->h_name) {
-    // DNS 0x20 may mix case, output as all lower for checks as the mixed case
-    // is really more of an internal thing
-    char lowername[256];
-    arestest_strtolower(lowername, hostent->h_name, sizeof(lowername));
-    name_ = lowername;
-  }
+  if (hostent->h_name)
+    name_ = hostent->h_name;
 
   if (hostent->h_aliases) {
     char** palias = hostent->h_aliases;
