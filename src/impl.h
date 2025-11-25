@@ -8,6 +8,10 @@ typedef struct {
                                      struct hostent     **host,
                                      struct ares_addrttl *addrttls,
                                      int                 *naddrttls);
+   int (*ares_parse_aaaa_reply)(const unsigned char *abuf, int alen,
+                                     struct hostent      **host,
+                                     struct ares_addr6ttl *addrttls,
+                                     int                  *naddrttls);
 } ares_impl_t;
 
 extern ares_impl_t impl;

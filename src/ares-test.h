@@ -35,4 +35,7 @@ public:
    int ares_parse_a_reply(const unsigned char *abuf, int alen, struct hostent **host, struct ares_addrttl *addrttls, int *naddrttls) {
       return impl.ares_parse_a_reply(abuf, alen, host, addrttls, naddrttls);
    }
+   int ares_parse_aaaa_reply(const unsigned char *abuf, int alen, struct hostent **host, struct ares_addr6ttl *addrttls, int *naddrttls) {
+      return impl.ares_parse_aaaa_reply(abuf, alen, host, addrttls, naddrttls);
+   }
 };
