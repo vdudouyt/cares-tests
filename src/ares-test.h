@@ -31,15 +31,24 @@ extern "C" {
 
 class LibraryTest : public ::testing::Test {
 public:
-   void ares_free_hostent(struct hostent *host) { impl.ares_free_hostent(host); }
+   void ares_free_hostent(struct hostent *host) {
+      if(!impl.ares_free_hostent) throw std::runtime_error("not implemented: ares_free_hostent");
+      return impl.ares_free_hostent(host);
+   }
    int ares_parse_a_reply(const unsigned char *abuf, int alen, struct hostent **host, struct ares_addrttl *addrttls, int *naddrttls) {
+      if(!impl.ares_parse_a_reply) throw std::runtime_error("not implemented: ares_parse_a_reply");
       return impl.ares_parse_a_reply(abuf, alen, host, addrttls, naddrttls);
    }
    int ares_parse_aaaa_reply(const unsigned char *abuf, int alen, struct hostent **host, struct ares_addr6ttl *addrttls, int *naddrttls) {
+      if(!impl.ares_parse_aaaa_reply) throw std::runtime_error("not implemented: ares_parse_aaaa_reply");
       return impl.ares_parse_aaaa_reply(abuf, alen, host, addrttls, naddrttls);
    }
-   void ares_free_data(void *dataptr) { impl.ares_free_data(dataptr); }
+   void ares_free_data(void *dataptr) {
+      if(!impl.ares_free_data) throw std::runtime_error("not implemented: ares_free_data");
+      return impl.ares_free_data(dataptr);
+   }
    int ares_parse_caa_reply(const unsigned char *abuf, int alen, struct ares_caa_reply **caa_out) {
+      if(!impl.ares_parse_caa_reply) throw std::runtime_error("not implemented: ares_parse_caa_reply");
       return impl.ares_parse_caa_reply(abuf, alen, caa_out);
    }
 };
