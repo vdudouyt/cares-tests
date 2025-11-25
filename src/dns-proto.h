@@ -377,3 +377,7 @@ struct DNSPacket {
 };
 
 std::string AddressToString(const void* vaddr, int len);
+
+std::string           HexDump(std::vector<byte> data);
+std::string           HexDump(const byte *data, int len);
+std::string           HexDump(const char *data, int len);

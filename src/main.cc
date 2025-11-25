@@ -243,24 +243,6 @@ TEST(LibraryTest, ParseAReplyVariantA) {
   ares_free_hostent(host);
 }
 
-std::string HexDump(std::vector<byte> data) {
-  std::stringstream ss;
-  for (size_t ii = 0; ii < data.size();  ii++) {
-    char buffer[2 + 1];
-    snprintf(buffer, sizeof(buffer), "%02x", data[ii]);
-    ss << buffer;
-  }
-  return ss.str();
-}
-
-std::string HexDump(const byte *data, int len) {                                                                                           
-  return HexDump(std::vector<byte>(data, data + len));
-}
-
-std::string HexDump(const char *data, int len) {
-  return HexDump(reinterpret_cast<const byte*>(data), len);
-}
-
 int main(int argc, char **argv) {
     if(argc != 2) {
         fprintf(stderr, "Wrong usage\n");
