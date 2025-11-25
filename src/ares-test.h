@@ -38,4 +38,8 @@ public:
    int ares_parse_aaaa_reply(const unsigned char *abuf, int alen, struct hostent **host, struct ares_addr6ttl *addrttls, int *naddrttls) {
       return impl.ares_parse_aaaa_reply(abuf, alen, host, addrttls, naddrttls);
    }
+   void ares_free_data(void *dataptr) { impl.ares_free_data(dataptr); }
+   int ares_parse_caa_reply(const unsigned char *abuf, int alen, struct ares_caa_reply **caa_out) {
+      return impl.ares_parse_caa_reply(abuf, alen, caa_out);
+   }
 };
