@@ -9,6 +9,7 @@
 #include <ares.h>
 #include <cstddef>
 #include <netdb.h>
+#include <dlfcn.h>
 #include "dns-proto.h"
 
 struct HostEnt {
@@ -29,11 +30,13 @@ extern "C" {
 #include "impl.h"
 }
 
-#define IMPL_SHIM(RET, FUNC, PARAMS, ARGS)                      \
-    RET FUNC PARAMS {                                                  \
-        if (!impl.FUNC)                                                \
-            throw std::runtime_error("not implemented: " #FUNC);       \
-        return impl.FUNC ARGS;                                         \
+#define IMPL_SHIM(RET, FUNC, PARAMS, ARGS)                              \
+    RET FUNC PARAMS {                                                   \
+        RET (*fn) PARAMS = (RET (*) PARAMS) dlsym(impl.handle, #FUNC);  \
+        if (!fn) {                                                      \
+            throw std::runtime_error("not implemented: " #FUNC);        \
+        }                                                               \
+        return fn ARGS;                                                 \
     }
 
 class LibraryTest : public ::testing::Test {

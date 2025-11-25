@@ -5,14 +5,8 @@
 ares_impl_t impl;
 
 void load_cares_impl(const char *path) {
-   void *handle = impl.handle = dlopen(path, RTLD_LAZY);
-   assert(handle);
-   impl.ares_free_hostent = dlsym(handle, "ares_free_hostent");
-   impl.ares_parse_a_reply = dlsym(handle, "ares_parse_a_reply");
-   impl.ares_parse_aaaa_reply = dlsym(handle, "ares_parse_aaaa_reply");
-   impl.ares_free_data = dlsym(handle, "ares_free_data");
-   impl.ares_parse_caa_reply = dlsym(handle, "ares_parse_caa_reply");
-   impl.ares_parse_mx_reply = dlsym(handle, "ares_parse_mx_reply");
+   impl.handle = dlopen(path, RTLD_LAZY);
+   assert(impl.handle);
 }
 
 void unload_cares_impl() {
