@@ -1,19 +1,38 @@
-#include <ares.h>
-#include <cstddef>
-#include <netdb.h>
-#include "dns-proto.h"
+/* MIT License
+ *
+ * Copyright (c) The c-ares project and its contributors
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the next
+ * paragraph) shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
 #include "ares-test.h"
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
+#include "dns-proto.h"
 
-extern "C" {
-#include "impl.h"
-}
+#include <sstream>
+#include <vector>
 
-#define ares_parse_a_reply impl.ares_parse_a_reply
-#define ares_free_hostent impl.ares_free_hostent
+namespace ares {
+namespace test {
 
-TEST(LibraryTest, ParseAReplyOK) {
+TEST_F(LibraryTest, ParseAReplyOK) {
   DNSPacket pkt;
   pkt.set_qid(0x1234).set_response().set_aa()
     .add_question(new DNSQuestion("example.com", T_A))
@@ -78,7 +97,7 @@ TEST(LibraryTest, ParseAReplyOK) {
   EXPECT_EQ("2.3.4.5", AddressToString(&(info[0].ipaddr), 4));
 }
 
-TEST(LibraryTest, ParseMalformedAReply) {
+TEST_F(LibraryTest, ParseMalformedAReply) {
   std::vector<byte> data = {
     0x12, 0x34,  // [0:2) qid
     0x84, // [2] response + query + AA + not-TC + not-RD
@@ -122,7 +141,7 @@ TEST(LibraryTest, ParseMalformedAReply) {
                                               &host, info, &count));
 }
 
-TEST(LibraryTest, ParseAReplyNoData) {
+TEST_F(LibraryTest, ParseAReplyNoData) {
   DNSPacket pkt;
   pkt.set_qid(0x1234).set_response().set_aa()
     .add_question(new DNSQuestion("example.com", T_A));
@@ -149,7 +168,7 @@ TEST(LibraryTest, ParseAReplyNoData) {
   ares_free_hostent(host);
 }
 
-TEST(LibraryTest, ParseAReplyVariantA) {
+TEST_F(LibraryTest, ParseAReplyVariantA) {
   DNSPacket pkt;
   pkt.set_qid(6366).set_rd().set_ra()
     .add_question(new DNSQuestion("mit.edu", T_A))
@@ -169,3 +188,224 @@ TEST(LibraryTest, ParseAReplyVariantA) {
   EXPECT_EQ(52, info[0].ttl);
   ares_free_hostent(host);
 }
+
+TEST_F(LibraryTest, ParseAReplyJustCname) {
+  DNSPacket pkt;
+  pkt.set_qid(6366).set_rd().set_ra()
+    .add_question(new DNSQuestion("mit.edu", T_A))
+    .add_answer(new DNSCnameRR("mit.edu", 52, "other.mit.edu"));
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[2];
+  int count = 2;
+  std::vector<byte> data = pkt.data();
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(0, count);
+  ASSERT_NE(nullptr, host);
+  std::stringstream ss;
+  ss << HostEnt(host);
+  EXPECT_EQ("{'other.mit.edu' aliases=[mit.edu] addrs=[]}", ss.str());
+  ares_free_hostent(host);
+}
+
+TEST_F(LibraryTest, ParseAReplyVariantCname) {
+  DNSPacket pkt;
+  pkt.set_qid(6366).set_rd().set_ra()
+    .add_question(new DNSQuestion("query.example.com", T_A))
+    .add_answer(new DNSCnameRR("query.example.com", 200, "redirect.query.example.com"))
+    .add_answer(new DNSARR("redirect.query.example.com", 300, {129,97,123,22}))
+    .add_auth(new DNSNsRR("example.com", 218, "aa.ns1.example.com"))
+    .add_auth(new DNSNsRR("example.com", 218, "ns2.example.com"))
+    .add_auth(new DNSNsRR("example.com", 218, "ns3.example.com"))
+    .add_auth(new DNSNsRR("example.com", 218, "ns4.example.com"))
+    .add_additional(new DNSARR("aa.ns1.example.com", 218, {129,97,1,1}))
+    .add_additional(new DNSARR("ns2.example.com", 218, {129,97,1,2}))
+    .add_additional(new DNSARR("ns3.example.com", 218, {129,97,1,3}))
+    .add_additional(new DNSARR("ns4.example.com", 218, {129,97,1,4}));
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[2];
+  int count = 2;
+  std::vector<byte> data = pkt.data();
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(1, count);
+  EXPECT_EQ("129.97.123.22", AddressToString(&(info[0].ipaddr), 4));
+  // TTL is reduced to match CNAME's.
+  EXPECT_EQ(200, info[0].ttl);
+  ares_free_hostent(host);
+
+  // Repeat parsing without places to put the results.
+  count = 0;
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             nullptr, info, &count));
+}
+
+TEST_F(LibraryTest, ParseAReplyVariantCnameChain) {
+  DNSPacket pkt;
+  pkt.set_qid(6366).set_rd().set_ra()
+    .add_question(new DNSQuestion("c1.localhost", T_A))
+    .add_answer(new DNSCnameRR("c1.localhost", 604800, "c2.localhost"))
+    .add_answer(new DNSCnameRR("c2.localhost", 604800, "c3.localhost"))
+    .add_answer(new DNSCnameRR("c3.localhost", 604800, "c4.localhost"))
+    .add_answer(new DNSARR("c4.localhost", 604800, {8,8,8,8}))
+    .add_auth(new DNSNsRR("localhost", 604800, "localhost"))
+    .add_additional(new DNSARR("localhost", 604800, {127,0,0,1}))
+    .add_additional(new DNSAaaaRR("localhost", 604800,
+                              {0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}));
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[2];
+  int count = 2;
+  std::vector<byte> data = pkt.data();
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(1, count);
+  EXPECT_EQ("8.8.8.8", AddressToString(&(info[0].ipaddr), 4));
+  EXPECT_EQ(604800, info[0].ttl);
+  ares_free_hostent(host);
+}
+
+TEST_F(LibraryTest, DISABLED_ParseAReplyVariantCnameLast) {
+  DNSPacket pkt;
+  pkt.set_qid(6366).set_rd().set_ra()
+    .add_question(new DNSQuestion("query.example.com", T_A))
+    .add_answer(new DNSARR("redirect.query.example.com", 300, {129,97,123,221}))
+    .add_answer(new DNSARR("redirect.query.example.com", 300, {129,97,123,222}))
+    .add_answer(new DNSARR("redirect.query.example.com", 300, {129,97,123,223}))
+    .add_answer(new DNSARR("redirect.query.example.com", 300, {129,97,123,224}))
+    .add_answer(new DNSCnameRR("query.example.com", 60, "redirect.query.example.com"))
+    .add_additional(new DNSTxtRR("query.example.com", 60, {"text record"}));
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[8];
+  int count = 8;
+  std::vector<byte> data = pkt.data();
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(4, count);
+  EXPECT_EQ("129.97.123.221", AddressToString(&(info[0].ipaddr), 4));
+  EXPECT_EQ("129.97.123.222", AddressToString(&(info[1].ipaddr), 4));
+  EXPECT_EQ("129.97.123.223", AddressToString(&(info[2].ipaddr), 4));
+  EXPECT_EQ("129.97.123.224", AddressToString(&(info[3].ipaddr), 4));
+  EXPECT_EQ(300, info[0].ttl);
+  EXPECT_EQ(300, info[1].ttl);
+  EXPECT_EQ(300, info[2].ttl);
+  EXPECT_EQ(300, info[3].ttl);
+  ares_free_hostent(host);
+}
+
+TEST_F(LibraryTest, ParseAReplyErrors) {
+  DNSPacket pkt;
+  pkt.set_qid(0x1234).set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_A))
+    .add_answer(new DNSARR("example.com", 100, {0x02, 0x03, 0x04, 0x05}));
+  std::vector<byte> data;
+
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[2];
+  int count = 2;
+
+  // No question.
+  pkt.questions_.clear();
+  data = pkt.data();
+  EXPECT_EQ(ARES_EBADRESP, ares_parse_a_reply(data.data(), (int)data.size(),
+                                              &host, info, &count));
+  EXPECT_EQ(nullptr, host);
+  pkt.add_question(new DNSQuestion("example.com", T_A));
+
+  // Question != answer, this is ok as of Issue #683
+  pkt.questions_.clear();
+  pkt.add_question(new DNSQuestion("Axample.com", T_A));
+  data = pkt.data();
+  EXPECT_EQ(ARES_SUCCESS, ares_parse_a_reply(data.data(), (int)data.size(),
+                                              &host, info, &count));
+  ASSERT_NE(nullptr, host);
+  std::stringstream ss;
+  ss << HostEnt(host);
+  EXPECT_EQ("{'Axample.com' aliases=[] addrs=[2.3.4.5]}", ss.str());
+  ares_free_hostent(host);
+  host = nullptr;
+
+  pkt.questions_.clear();
+  pkt.add_question(new DNSQuestion("example.com", T_A));
+
+#ifdef DISABLED
+  // Not a response.
+  pkt.set_response(false);
+  data = pkt.data();
+  EXPECT_EQ(ARES_EBADRESP, ares_parse_a_reply(data.data(), (int)data.size(),
+                                              &host, info, &count));
+  EXPECT_EQ(nullptr, host);
+  pkt.set_response(true);
+
+  // Bad return code.
+  pkt.set_rcode(FORMERR);
+  data = pkt.data();
+  EXPECT_EQ(ARES_ENODATA, ares_parse_a_reply(data.data(), (int)data.size(),
+                                              &host, info, &count));
+  EXPECT_EQ(nullptr, host);
+  pkt.set_rcode(NOERROR);
+#endif
+
+  // Two questions
+  pkt.add_question(new DNSQuestion("example.com", T_A));
+  data = pkt.data();
+  EXPECT_EQ(ARES_EBADRESP, ares_parse_a_reply(data.data(), (int)data.size(),
+                                              &host, info, &count));
+  EXPECT_EQ(nullptr, host);
+  pkt.questions_.clear();
+  pkt.add_question(new DNSQuestion("example.com", T_A));
+
+  // Wrong sort of answer.
+  pkt.answers_.clear();
+  pkt.add_answer(new DNSMxRR("example.com", 100, 100, "mx1.example.com"));
+  data = pkt.data();
+  EXPECT_EQ(ARES_ENODATA, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(nullptr, host);
+  pkt.answers_.clear();
+  pkt.add_answer(new DNSARR("example.com", 100, {0x02, 0x03, 0x04, 0x05}));
+
+  // No answer.
+  pkt.answers_.clear();
+  data = pkt.data();
+  EXPECT_EQ(ARES_ENODATA, ares_parse_a_reply(data.data(), (int)data.size(),
+                                             &host, info, &count));
+  EXPECT_EQ(nullptr, host);
+  pkt.add_answer(new DNSARR("example.com", 100, {0x02, 0x03, 0x04, 0x05}));
+
+  // Truncated packets.
+  data = pkt.data();
+  for (size_t len = 1; len < data.size(); len++) {
+    EXPECT_EQ(ARES_EBADRESP, ares_parse_a_reply(data.data(), (int)len,
+                                                &host, info, &count));
+    EXPECT_EQ(nullptr, host);
+    EXPECT_EQ(ARES_EBADRESP, ares_parse_a_reply(data.data(), (int)len,
+                                                nullptr, info, &count));
+  }
+}
+
+#ifdef ENABLE_ALLOC_FAIL_TESTS
+TEST_F(LibraryTest, ParseAReplyAllocFail) {
+  DNSPacket pkt;
+  pkt.set_qid(0x1234).set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_A))
+    .add_answer(new DNSCnameRR("example.com", 300, "c.example.com"))
+    .add_answer(new DNSARR("c.example.com", 500, {0x02, 0x03, 0x04, 0x05}));
+  std::vector<byte> data = pkt.data();
+
+  struct hostent *host = nullptr;
+  struct ares_addrttl info[2];
+  int count = 2;
+
+  for (int ii = 1; ii <= 8; ii++) {
+    ClearFails();
+    SetAllocFail(ii);
+    EXPECT_EQ(ARES_ENOMEM, ares_parse_a_reply(data.data(), (int)data.size(),
+                                              &host, info, &count)) << ii;
+    EXPECT_EQ(nullptr, host);
+  }
+}
+#endif
+
+}  // namespace test
+}  // namespace ares

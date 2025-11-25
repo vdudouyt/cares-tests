@@ -1,15 +1,9 @@
 #include <iostream>
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include <ares.h>
 #include <cstddef>
 #include <netdb.h>
 #include "dns-proto.h"
 #include "ares-test.h"
-
-extern "C" {
-#include "impl.h"
-}
 
 using ::testing::_;
 using ::testing::Return;
