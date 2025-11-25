@@ -352,3 +352,27 @@ std::vector<byte> DNSPacket::data() const {
   }
   return data;
 }
+
+std::string AddressToString(const void* vaddr, int len) {
+  const byte* addr = reinterpret_cast<const byte*>(vaddr);
+  std::stringstream ss;
+  if (len == 4) {
+    char buffer[4*4 + 3 + 1];
+    snprintf(buffer, sizeof(buffer), "%u.%u.%u.%u",
+             (unsigned char)addr[0],
+             (unsigned char)addr[1],
+             (unsigned char)addr[2],
+             (unsigned char)addr[3]);
+    ss << buffer;
+  } else if (len == 16) {
+    for (int ii = 0; ii < 16;  ii+=2) {
+      if (ii > 0) ss << ':';
+      char buffer[4 + 1];
+      snprintf(buffer, sizeof(buffer), "%02x%02x", (unsigned char)addr[ii], (unsigned char)addr[ii+1]);
+      ss << buffer;
+    }
+  } else {
+    ss << "!" << HexDump(addr, len) << "!";
+  }
+  return ss.str();
+}

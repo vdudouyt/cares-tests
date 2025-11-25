@@ -16,8 +16,6 @@ extern "C" {
 using ::testing::_;
 using ::testing::Return;
 
-std::string AddressToString(const void* vaddr, int len);
-
 struct HostEnt {
   HostEnt() : addrtype_(-1)
   {
@@ -261,30 +259,6 @@ std::string HexDump(const byte *data, int len) {
 
 std::string HexDump(const char *data, int len) {
   return HexDump(reinterpret_cast<const byte*>(data), len);
-}
-
-std::string AddressToString(const void* vaddr, int len) {
-  const byte* addr = reinterpret_cast<const byte*>(vaddr);
-  std::stringstream ss;
-  if (len == 4) {
-    char buffer[4*4 + 3 + 1];
-    snprintf(buffer, sizeof(buffer), "%u.%u.%u.%u",
-             (unsigned char)addr[0],
-             (unsigned char)addr[1],
-             (unsigned char)addr[2],
-             (unsigned char)addr[3]);
-    ss << buffer;
-  } else if (len == 16) {
-    for (int ii = 0; ii < 16;  ii+=2) {
-      if (ii > 0) ss << ':';
-      char buffer[4 + 1];
-      snprintf(buffer, sizeof(buffer), "%02x%02x", (unsigned char)addr[ii], (unsigned char)addr[ii+1]);
-      ss << buffer;
-    }
-  } else {
-    ss << "!" << HexDump(addr, len) << "!";
-  }
-  return ss.str();
 }
 
 int main(int argc, char **argv) {

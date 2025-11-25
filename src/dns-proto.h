@@ -375,3 +375,5 @@ struct DNSPacket {
   std::vector<std::unique_ptr<DNSRR>>       auths_;
   std::vector<std::unique_ptr<DNSRR>>       adds_;
 };
+
+std::string AddressToString(const void* vaddr, int len);
