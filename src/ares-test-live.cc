@@ -642,3 +642,44 @@ TEST_F(LibraryTest, GetTCPSock) {
 
   ares_destroy(channel);
 }
+
+TEST_F(DefaultChannelTest, VerifySocketFunctionCallback) {
+  VirtualizeIO vio(channel_);
+
+  auto my_functions = VirtualizeIO::default_functions;
+  size_t count = 0;
+
+  my_functions.asocket = [](int af, int type, int protocol, void * p) -> ares_socket_t {
+    EXPECT_NE(nullptr, p);
+    (*reinterpret_cast<size_t *>(p))++;
+    return ::socket(af, type, protocol);
+  };
+
+  ares_set_socket_functions(channel_, &my_functions, &count);
+
+  {
+    count = 0;
+    HostResult result;
+    ares_gethostbyname(channel_, "www.google.com.", AF_INET, HostCallback, &result);
+    Process();
+
+    EXPECT_TRUE(result.done_);
+    EXPECT_NE((size_t)0, count);
+  }
+
+  {
+    count = 0;
+    ares_channel_t *copy;
+    EXPECT_EQ(ARES_SUCCESS, ares_dup(&copy, channel_));
+
+    HostResult result;
+    ares_gethostbyname(copy, "www.google.com.", AF_INET, HostCallback, &result);
+
+    ProcessWork(copy, NoExtraFDs, nullptr);
+
+    EXPECT_TRUE(result.done_);
+    ares_destroy(copy);
+    EXPECT_NE((size_t)0, count);
+  }
+
+}
