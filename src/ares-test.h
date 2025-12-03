@@ -26,6 +26,43 @@ struct HostEnt {
 
 std::ostream &operator<<(std::ostream &os, const HostEnt &result);
 
+#define VCLASS_NAME(casename, testname) Virt##casename##_##testname
+#define VIRT_NONVIRT_TEST_F(casename, testname)                    \
+  class VCLASS_NAME(casename, testname) : public casename {        \
+  public:                                                          \
+    VCLASS_NAME(casename, testname)()                              \
+    {                                                              \
+    }                                                              \
+    void InnerTestBody();                                          \
+  };                                                               \
+  GTEST_TEST_(casename, testname, VCLASS_NAME(casename, testname), \
+              ::testing::internal::GetTypeId<casename>())          \
+  {                                                                \
+    InnerTestBody();                                               \
+  }                                                                \
+  GTEST_TEST_(casename, testname##_virtualized,                    \
+              VCLASS_NAME(casename, testname),                     \
+              ::testing::internal::GetTypeId<casename>())          \
+  {                                                                \
+    VirtualizeIO vio(channel_);                                    \
+    InnerTestBody();                                               \
+  }                                                                \
+  void VCLASS_NAME(casename, testname)::InnerTestBody()
+
+/* Assigns virtual IO functions to a channel. These functions simply call
+ * the actual system functions.
+ */
+class VirtualizeIO {
+public:
+  VirtualizeIO(ares_channel);
+  ~VirtualizeIO();
+
+  static const ares_socket_functions default_functions;
+
+private:
+  ares_channel_t *channel_;
+};
+
 extern "C" {
 #include "impl.h"
 }
@@ -55,4 +92,77 @@ public:
    IMPL_SHIM(int, ares_parse_txt_reply, (const unsigned char *abuf, int alen, struct ares_txt_reply **txt_out), (abuf, alen, txt_out))
    IMPL_SHIM(int, ares_parse_uri_reply, (const unsigned char *abuf, int alen, struct ares_uri_reply **uri_out), (abuf, alen, uri_out))
    IMPL_SHIM(int, ares_parse_txt_reply_ext, (const unsigned char *abuf, int alen, struct ares_txt_ext **txt_out), (abuf, alen, txt_out))
+   IMPL_SHIM(int, ares_set_socket_functions, (const unsigned char *abuf, int alen, struct ares_txt_ext **txt_out), (abuf, alen, txt_out))
 };
+
+class DefaultChannelTest : public LibraryTest {
+public:
+  DefaultChannelTest() : channel_(nullptr)
+  {
+    /* Enable query cache for live tests */
+    struct ares_options opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.qcache_max_ttl = 300;
+    int optmask         = ARES_OPT_QUERY_CACHE;
+    EXPECT_EQ(ARES_SUCCESS, ares_init_options(&channel_, &opts, optmask));
+    EXPECT_NE(nullptr, channel_);
+  }
+
+  ~DefaultChannelTest()
+  {
+    ares_destroy(channel_);
+    channel_ = nullptr;
+  }
+
+  // Process all pending work on ares-owned file descriptors.
+  void Process(unsigned int cancel_ms = 0);
+
+protected:
+  ares_channel_t *channel_;
+};
+
+class DefaultChannelModeTest
+  : public LibraryTest,
+    public ::testing::WithParamInterface<std::string> {
+public:
+  DefaultChannelModeTest() : channel_(nullptr)
+  {
+    struct ares_options opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.lookups = strdup(GetParam().c_str());
+    int optmask  = ARES_OPT_LOOKUPS;
+    EXPECT_EQ(ARES_SUCCESS, ares_init_options(&channel_, &opts, optmask));
+    EXPECT_NE(nullptr, channel_);
+    free(opts.lookups);
+  }
+
+  ~DefaultChannelModeTest()
+  {
+    ares_destroy(channel_);
+    channel_ = nullptr;
+  }
+
+  // Process all pending work on ares-owned file descriptors.
+  void Process(unsigned int cancel_ms = 0);
+
+protected:
+  ares_channel_t *channel_;
+};
+
+// Structure that describes the result of an ares_host_callback invocation.
+struct HostResult {
+  HostResult() : done_(false), status_(0), timeouts_(0)
+  {
+  }
+
+  // Whether the callback has been invoked.
+  bool    done_;
+  // Explicitly provided result information.
+  int     status_;
+  int     timeouts_;
+  // Contents of the hostent structure, if provided.
+  HostEnt host_;
+};
+
+void          HostCallback(void *data, int status, int timeouts,
+                           struct hostent *hostent);
