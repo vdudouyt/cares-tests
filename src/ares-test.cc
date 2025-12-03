@@ -65,6 +65,10 @@ IMPL_SHIM(void, ares_search, (ares_channel_t *channel, const char *name, int dns
 IMPL_SHIM(void, ares_getnameinfo, (ares_channel_t *channel, const struct sockaddr *sa, ares_socklen_t salen, int flags, ares_nameinfo_callback callback, void *arg), (channel, sa, salen, flags, callback, arg));
 IMPL_SHIM(int, ares_getsock, (ares_channel_t *channel, ares_socket_t *socks, int numsocks), (channel, socks, numsocks));
 IMPL_SHIM(int, ares_dup, (ares_channel_t **dest, ares_channel_t *src), (dest, src));
+IMPL_SHIM(int, ares_set_servers, (ares_channel_t *channel, const struct ares_addr_node *servers), (channel, servers));
+IMPL_SHIM(int, ares_set_servers_ports, (ares_channel_t *channel, const struct ares_addr_port_node *servers), (channel, servers));
+IMPL_SHIM(int, ares_set_servers_csv, (ares_channel_t *channel, const char *servers), (channel, servers));
+IMPL_SHIM(int, ares_set_servers_ports_csv, (ares_channel_t *channel, const char *servers), (channel, servers));
 
 struct timeval ares__tvnow(void)
 {
