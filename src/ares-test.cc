@@ -61,6 +61,7 @@ IMPL_SHIM(void, ares_process, (ares_channel_t *channel, fd_set *read_fds, fd_set
 IMPL_SHIM(int, ares_fds, (ares_channel_t *channel, fd_set *read_fds, fd_set *write_fds), (channel, read_fds, write_fds));
 IMPL_SHIM(int, ares_gethostbyname_file, (ares_channel_t *channel, const char *name, int family, struct hostent **host), (channel, name, family, host));
 IMPL_SHIM(void, ares_gethostbyaddr, (ares_channel_t *channel, const void *addr, int addrlen, int family, ares_host_callback callback, void *arg), (channel, addr, addrlen, family, callback, arg));
+IMPL_SHIM(void, ares_search, (ares_channel_t *channel, const char *name, int dnsclass, int type, ares_callback callback, void *arg), (channel, name, dnsclass, type, callback, arg));
 
 struct timeval ares__tvnow(void)
 {
@@ -243,4 +244,14 @@ void HostCallback(void *data, int status, int timeouts,
 
 void DefaultChannelTest::Process(unsigned int cancel_ms) {
   ProcessWork(channel_, NoExtraFDs, nullptr, cancel_ms);
+}
+
+void SearchCallback(void *data, int status, int timeouts,                                                                                  
+                    unsigned char *abuf, int alen) {
+  EXPECT_NE(nullptr, data);
+  SearchResult* result = reinterpret_cast<SearchResult*>(data);
+  result->done_ = true;
+  result->status_ = status;
+  result->timeouts_ = timeouts;
+  result->data_.assign(abuf, abuf + alen);
 }

@@ -258,3 +258,75 @@ TEST_P(DefaultChannelModeTest, LiveGetHostByAddrFailAddrSize) {
 
 INSTANTIATE_TEST_SUITE_P(Modes, DefaultChannelModeTest,
                         ::testing::Values("f", "b", "fb", "bf"));
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveSearchA) {
+  SearchResult result;
+  ares_search(channel_, "www.youtube.com.", C_IN, T_A,
+              SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveSearchEmptyA) {
+  SearchResult result;
+  ares_search(channel_, "", C_IN, T_A,
+              SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_NE(ARES_SUCCESS, result.status_);
+}
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveSearchNS) {
+  SearchResult result;
+  ares_search(channel_, "google.com.", C_IN, T_NS,
+              SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveSearchMX) {
+  SearchResult result;
+  ares_search(channel_, "google.com.", C_IN, T_MX,
+              SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveSearchTXT) {
+  SearchResult result;
+  ares_search(channel_, "google.com.", C_IN, T_TXT,
+              SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveSearchSOA) {
+  SearchResult result;
+  ares_search(channel_, "google.com.", C_IN, T_SOA,
+              SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveSearchSRV) {
+  SearchResult result;
+  ares_search(channel_, "_imap._tcp.gmail.com.", C_IN, T_SRV,
+              SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveSearchANY) {
+  SearchResult result;
+  ares_search(channel_, "google.com.", C_IN, T_ANY,
+              SearchCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+}

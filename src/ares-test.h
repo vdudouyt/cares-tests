@@ -166,3 +166,16 @@ struct HostResult {
 
 void          HostCallback(void *data, int status, int timeouts,
                            struct hostent *hostent);
+
+/* search tests */
+struct SearchResult {
+  // Whether the callback has been invoked.
+  bool              done_;
+  // Explicitly provided result information.
+  int               status_;
+  int               timeouts_;
+  std::vector<byte> data_;
+};
+
+void SearchCallback(void *data, int status, int timeouts, unsigned char *abuf,
+                    int alen);
