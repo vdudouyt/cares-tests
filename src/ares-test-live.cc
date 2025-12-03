@@ -164,3 +164,97 @@ VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveGetHostByNameFile) {
     ares_free_hostent(host);
   }
 }
+
+TEST_P(DefaultChannelModeTest, LiveGetLocalhostByNameV4) {
+  HostResult result;
+  ares_gethostbyname(channel_, "localhost", AF_INET, HostCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  if (result.status_ != ARES_ECONNREFUSED) {
+    EXPECT_EQ(ARES_SUCCESS, result.status_);
+    EXPECT_EQ(1, (int)result.host_.addrs_.size());
+    EXPECT_EQ(AF_INET, result.host_.addrtype_);
+    EXPECT_NE(std::string::npos, result.host_.name_.find("localhost"));
+  }
+}
+
+TEST_P(DefaultChannelModeTest, LiveGetLocalhostByNameIPV6) {
+  HostResult result;
+  ares_gethostbyname(channel_, "::1", AF_INET6, HostCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  if (result.status_ != ARES_ENOTFOUND) {
+    EXPECT_EQ(ARES_SUCCESS, result.status_);
+    EXPECT_EQ(1, (int)result.host_.addrs_.size());
+    EXPECT_EQ(AF_INET6, result.host_.addrtype_);
+    std::stringstream ss;
+    ss << HostEnt(result.host_);
+    EXPECT_EQ("{'::1' aliases=[] addrs=[0000:0000:0000:0000:0000:0000:0000:0001]}", ss.str());
+  }
+}
+
+TEST_P(DefaultChannelModeTest, LiveGetLocalhostFailFamily) {
+  HostResult result;
+  ares_gethostbyname(channel_, "127.0.0.1", AF_INET+AF_INET6, HostCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ENOTIMP, result.status_);
+}
+
+TEST_P(DefaultChannelModeTest, LiveGetLocalhostByAddrV4) {
+  HostResult result;
+  struct in_addr addr;
+  addr.s_addr = htonl(INADDR_LOOPBACK);
+  ares_gethostbyaddr(channel_, &addr, sizeof(addr), AF_INET, HostCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  if (result.status_ != ARES_ENOTFOUND) {
+    EXPECT_EQ(ARES_SUCCESS, result.status_);
+    EXPECT_LT(0, (int)result.host_.addrs_.size());
+    EXPECT_EQ(AF_INET, result.host_.addrtype_);
+    // oddly, travis does not resolve to localhost, but a random hostname starting with travis-job
+    if (result.host_.name_.find("travis-job") == std::string::npos) {
+        EXPECT_NE(std::string::npos,
+                  result.host_.name_.find("localhost"));
+    }
+  }
+}
+
+TEST_P(DefaultChannelModeTest, LiveGetLocalhostByAddrV6) {
+  HostResult result;
+  struct in6_addr addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.s6_addr[15] = 1;  // in6addr_loopback
+  ares_gethostbyaddr(channel_, &addr, sizeof(addr), AF_INET6, HostCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  if (result.status_ != ARES_ENOTFOUND) {
+    EXPECT_EQ(ARES_SUCCESS, result.status_);
+    EXPECT_LT(0, (int)result.host_.addrs_.size());
+    EXPECT_EQ(AF_INET6, result.host_.addrtype_);
+    const std::string& name = result.host_.name_;
+    EXPECT_TRUE(std::string::npos != name.find("localhost") ||
+                std::string::npos != name.find("ip6-loopback"));
+  }
+}
+
+TEST_P(DefaultChannelModeTest, LiveGetHostByAddrFailFamily) {
+  HostResult result;
+  unsigned char addr[4] = {8, 8, 8, 8};
+  ares_gethostbyaddr(channel_, addr, sizeof(addr), AF_INET6+AF_INET,
+                     HostCallback, &result);
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ENOTIMP, result.status_);
+}
+
+TEST_P(DefaultChannelModeTest, LiveGetHostByAddrFailAddrSize) {
+  HostResult result;
+  unsigned char addr[4] = {8, 8, 8, 8};
+  ares_gethostbyaddr(channel_, addr, sizeof(addr) - 1, AF_INET,
+                     HostCallback, &result);
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ENOTIMP, result.status_);
+}
+
+INSTANTIATE_TEST_SUITE_P(Modes, DefaultChannelModeTest,
+                        ::testing::Values("f", "b", "fb", "bf"));
