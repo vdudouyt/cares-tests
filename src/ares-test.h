@@ -179,3 +179,16 @@ struct SearchResult {
 
 void SearchCallback(void *data, int status, int timeouts, unsigned char *abuf,
                     int alen);
+
+struct NameInfoResult {
+  // Whether the callback has been invoked.
+  bool        done_;
+  // Explicitly provided result information.
+  int         status_;
+  int         timeouts_;
+  std::string node_;
+  std::string service_;
+};
+
+void NameInfoCallback(void *data, int status, int timeouts, char *node,
+                      char *service);

@@ -62,6 +62,7 @@ IMPL_SHIM(int, ares_fds, (ares_channel_t *channel, fd_set *read_fds, fd_set *wri
 IMPL_SHIM(int, ares_gethostbyname_file, (ares_channel_t *channel, const char *name, int family, struct hostent **host), (channel, name, family, host));
 IMPL_SHIM(void, ares_gethostbyaddr, (ares_channel_t *channel, const void *addr, int addrlen, int family, ares_host_callback callback, void *arg), (channel, addr, addrlen, family, callback, arg));
 IMPL_SHIM(void, ares_search, (ares_channel_t *channel, const char *name, int dnsclass, int type, ares_callback callback, void *arg), (channel, name, dnsclass, type, callback, arg));
+IMPL_SHIM(void, ares_getnameinfo, (ares_channel_t *channel, const struct sockaddr *sa, ares_socklen_t salen, int flags, ares_nameinfo_callback callback, void *arg), (channel, sa, salen, flags, callback, arg));
 
 struct timeval ares__tvnow(void)
 {
@@ -254,4 +255,15 @@ void SearchCallback(void *data, int status, int timeouts,
   result->status_ = status;
   result->timeouts_ = timeouts;
   result->data_.assign(abuf, abuf + alen);
+}
+
+void NameInfoCallback(void *data, int status, int timeouts,
+                      char *node, char *service) {
+  EXPECT_NE(nullptr, data);
+  NameInfoResult* result = reinterpret_cast<NameInfoResult*>(data);
+  result->done_ = true;
+  result->status_ = status;
+  result->timeouts_ = timeouts;
+  result->node_ = std::string(node ? node : "");
+  result->service_ = std::string(service ? service : "");
 }
