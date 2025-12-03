@@ -59,6 +59,8 @@ IMPL_SHIM(struct timeval *, ares_timeout, (ares_channel_t *channel, struct timev
 IMPL_SHIM(void, ares_cancel, (ares_channel_t *channel), (channel));
 IMPL_SHIM(void, ares_process, (ares_channel_t *channel, fd_set *read_fds, fd_set *write_fds), (channel, read_fds, write_fds));
 IMPL_SHIM(int, ares_fds, (ares_channel_t *channel, fd_set *read_fds, fd_set *write_fds), (channel, read_fds, write_fds));
+IMPL_SHIM(int, ares_gethostbyname_file, (ares_channel_t *channel, const char *name, int family, struct hostent **host), (channel, name, family, host));
+IMPL_SHIM(void, ares_gethostbyaddr, (ares_channel_t *channel, const void *addr, int addrlen, int family, ares_host_callback callback, void *arg), (channel, addr, addrlen, family, callback, arg));
 
 struct timeval ares__tvnow(void)
 {
