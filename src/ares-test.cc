@@ -238,3 +238,7 @@ void HostCallback(void *data, int status, int timeouts,
   if (hostent)
     result->host_ = HostEnt(hostent);
 }
+
+void DefaultChannelTest::Process(unsigned int cancel_ms) {
+  ProcessWork(channel_, NoExtraFDs, nullptr, cancel_ms);
+}
