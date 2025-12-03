@@ -192,3 +192,10 @@ struct NameInfoResult {
 
 void NameInfoCallback(void *data, int status, int timeouts, char *node,
                       char *service);
+
+std::set<ares_socket_t> NoExtraFDs();
+
+void ProcessWork(ares_channel_t *channel,
+   std::function<std::set<ares_socket_t>()> get_extrafds,
+   std::function<void(ares_socket_t)> process_extra,
+   unsigned int cancel_ms = 0);
