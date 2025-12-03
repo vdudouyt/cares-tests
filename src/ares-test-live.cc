@@ -538,3 +538,38 @@ VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveGetNameInvalidFlags) {
   EXPECT_TRUE(result.done_);
   EXPECT_EQ(ARES_EBADFLAGS, result.status_);
 }
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveGetServiceInfo) {
+  NameInfoResult result;
+  struct sockaddr_in sockaddr;
+  memset(&sockaddr, 0, sizeof(sockaddr));
+  sockaddr.sin_family = AF_INET;
+  sockaddr.sin_port = htons(53);
+  sockaddr.sin_addr.s_addr = htonl(0x08080808);
+  // Just look up service info
+  ares_getnameinfo(channel_, (const struct sockaddr*)&sockaddr, sizeof(sockaddr),
+                   ARES_NI_LOOKUPSERVICE|ARES_NI_SCTP,
+                   NameInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+  EXPECT_EQ("", result.node_);
+}
+
+VIRT_NONVIRT_TEST_F(DefaultChannelTest, LiveGetServiceInfoNumeric) {
+  NameInfoResult result;
+  struct sockaddr_in sockaddr;
+  memset(&sockaddr, 0, sizeof(sockaddr));
+  sockaddr.sin_family = AF_INET;
+  sockaddr.sin_port = htons(53);
+  sockaddr.sin_addr.s_addr = htonl(0x08080808);
+  // Just look up service info
+  ares_getnameinfo(channel_, (const struct sockaddr*)&sockaddr, sizeof(sockaddr),
+                   ARES_NI_LOOKUPSERVICE|ARES_NI_SCTP|ARES_NI_NUMERICSERV,
+                   NameInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+  EXPECT_EQ("", result.node_);
+  EXPECT_EQ("53", result.service_);
+}
