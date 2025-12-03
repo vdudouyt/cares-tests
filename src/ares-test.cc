@@ -51,25 +51,6 @@ std::ostream& operator<<(std::ostream& os, const HostEnt& host) {
   return os;
 }
 
-IMPL_SHIM(void, ares_set_socket_functions, (ares_channel_t *channel, const struct ares_socket_functions *funcs, void *user_data), (channel, funcs, user_data));
-IMPL_SHIM(void, ares_gethostbyname, (ares_channel_t *channel, const char *name, int family, ares_host_callback callback, void *arg), (channel, name, family, callback, arg));
-IMPL_SHIM(int, ares_init_options, (ares_channel_t **channelptr, const struct ares_options *options, int optmask), (channelptr, options, optmask));
-IMPL_SHIM(void, ares_destroy, (ares_channel_t *channel), (channel));
-IMPL_SHIM(struct timeval *, ares_timeout, (ares_channel_t *channel, struct timeval *maxtv, struct timeval *tv), (channel, maxtv, tv));
-IMPL_SHIM(void, ares_cancel, (ares_channel_t *channel), (channel));
-IMPL_SHIM(void, ares_process, (ares_channel_t *channel, fd_set *read_fds, fd_set *write_fds), (channel, read_fds, write_fds));
-IMPL_SHIM(int, ares_fds, (ares_channel_t *channel, fd_set *read_fds, fd_set *write_fds), (channel, read_fds, write_fds));
-IMPL_SHIM(int, ares_gethostbyname_file, (ares_channel_t *channel, const char *name, int family, struct hostent **host), (channel, name, family, host));
-IMPL_SHIM(void, ares_gethostbyaddr, (ares_channel_t *channel, const void *addr, int addrlen, int family, ares_host_callback callback, void *arg), (channel, addr, addrlen, family, callback, arg));
-IMPL_SHIM(void, ares_search, (ares_channel_t *channel, const char *name, int dnsclass, int type, ares_callback callback, void *arg), (channel, name, dnsclass, type, callback, arg));
-IMPL_SHIM(void, ares_getnameinfo, (ares_channel_t *channel, const struct sockaddr *sa, ares_socklen_t salen, int flags, ares_nameinfo_callback callback, void *arg), (channel, sa, salen, flags, callback, arg));
-IMPL_SHIM(int, ares_getsock, (ares_channel_t *channel, ares_socket_t *socks, int numsocks), (channel, socks, numsocks));
-IMPL_SHIM(int, ares_dup, (ares_channel_t **dest, ares_channel_t *src), (dest, src));
-IMPL_SHIM(int, ares_set_servers, (ares_channel_t *channel, const struct ares_addr_node *servers), (channel, servers));
-IMPL_SHIM(int, ares_set_servers_ports, (ares_channel_t *channel, const struct ares_addr_port_node *servers), (channel, servers));
-IMPL_SHIM(int, ares_set_servers_csv, (ares_channel_t *channel, const char *servers), (channel, servers));
-IMPL_SHIM(int, ares_set_servers_ports_csv, (ares_channel_t *channel, const char *servers), (channel, servers));
-
 struct timeval ares__tvnow(void)
 {
   struct timeval  now;
