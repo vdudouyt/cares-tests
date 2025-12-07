@@ -267,6 +267,51 @@ TEST_P(MockTCPChannelTestAI, YXDomainResponse) {
   EXPECT_EQ(ARES_ENODATA, result.status_);
 }
 
+class MockExtraOptsTestAI
+    : public MockChannelOptsTest,
+      public ::testing::WithParamInterface< std::pair<int, bool> > {
+ public:
+  MockExtraOptsTestAI()
+    : MockChannelOptsTest(1, GetParam().first, GetParam().second,
+                          FillOptions(&opts_),
+                          ARES_OPT_SOCK_SNDBUF|ARES_OPT_SOCK_RCVBUF) {}
+  static struct ares_options* FillOptions(struct ares_options * opts) {
+    memset(opts, 0, sizeof(struct ares_options));
+    // Set a few options that affect socket communications
+    opts->socket_send_buffer_size = 514;
+    opts->socket_receive_buffer_size = 514;
+    return opts;
+  }
+ private:
+  struct ares_options opts_;
+};
+
+TEST_P(MockExtraOptsTestAI, SimpleQuery) {
+  ares_set_local_ip4(channel_, 0x7F000001);
+  byte addr6[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
+  ares_set_local_ip6(channel_, addr6);
+  ares_set_local_dev(channel_, "dummy");
+
+  DNSPacket rsp;
+  rsp.set_response().set_aa()
+    .add_question(new DNSQuestion("www.google.com", T_A))
+    .add_answer(new DNSARR("www.google.com", 100, {2, 3, 4, 5}));
+  ON_CALL(server_, OnRequest("www.google.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp));
+
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_SUCCESS, result.status_);
+  EXPECT_THAT(result.ai_, IncludesNumAddresses(1));
+  EXPECT_THAT(result.ai_, IncludesV4Address("2.3.4.5"));
+}
+
 const char *af_tostr(int af)
 {
   switch (af) {
@@ -278,6 +323,11 @@ const char *af_tostr(int af)
   return "ipunknown";
 }
 
+const char *mode_tostr(bool mode)
+{
+  return mode?"ForceTCP":"DefaultUDP";
+}
+
 std::string PrintFamily(const testing::TestParamInfo<int> &info)
 {
   std::string name;
@@ -286,8 +336,21 @@ std::string PrintFamily(const testing::TestParamInfo<int> &info)
   return name;
 }
 
+std::string PrintFamilyMode(const testing::TestParamInfo<std::pair<int, bool>> &info)
+{
+  std::string name;
+
+  name += af_tostr(std::get<0>(info.param));
+  name += "_";
+  name += mode_tostr(std::get<1>(info.param));
+  return name;
+}
+
 INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockUDPChannelTestAI,
                         ::testing::ValuesIn(families), PrintFamily);
 
 INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockTCPChannelTestAI,
                         ::testing::ValuesIn(families), PrintFamily);
+
+INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockExtraOptsTestAI,
+			::testing::ValuesIn(families_modes), PrintFamilyMode);

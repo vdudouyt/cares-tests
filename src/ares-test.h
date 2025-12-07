@@ -14,6 +14,7 @@
 #include "ares_dns.h"
 
 extern std::vector<int> families;
+extern std::vector<std::pair<int, bool>> families_modes;
 
 struct HostEnt {
   HostEnt() : addrtype_(-1)

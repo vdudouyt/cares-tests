@@ -8,6 +8,15 @@ bool verbose = false;
 const std::vector<int> both_families = {AF_INET, AF_INET6};
 std::vector<int> families = both_families;
 
+const std::vector<std::pair<int, bool>> both_families_both_modes = {
+  std::make_pair<int, bool>(AF_INET, false),
+  std::make_pair<int, bool>(AF_INET, true),
+  std::make_pair<int, bool>(AF_INET6, false),
+  std::make_pair<int, bool>(AF_INET6, true)
+};
+
+std::vector<std::pair<int, bool>> families_modes = both_families_both_modes;
+
 HostEnt::HostEnt(const struct hostent *hostent) : addrtype_(-1) {
   if (!hostent)
     return;
