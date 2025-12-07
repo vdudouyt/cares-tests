@@ -32,6 +32,16 @@
 #include <sstream>
 #include <vector>
 
+class MockChannelTestAI
+  : public MockChannelOptsTest,
+    public ::testing::WithParamInterface<std::pair<int, bool>> {
+public:
+  MockChannelTestAI()
+    : MockChannelOptsTest(1, GetParam().first, GetParam().second, nullptr, 0)
+  {
+  }
+};
+
 class MockUDPChannelTestAI : public MockChannelOptsTest,
                              public ::testing::WithParamInterface<int> {
 public:
@@ -438,6 +448,182 @@ TEST_P(MockNoCheckRespChannelTestAI, RefusedResponse) {
   EXPECT_EQ(ARES_EREFUSED, result.status_);
 }
 
+class MockEDNSChannelTestAI : public MockFlagsChannelOptsTestAI {
+ public:
+  MockEDNSChannelTestAI() : MockFlagsChannelOptsTestAI(ARES_FLAG_EDNS) {}
+};
+
+TEST_P(MockEDNSChannelTestAI, RetryWithoutEDNS) {
+  DNSPacket rspfail;
+  rspfail.set_response().set_aa().set_rcode(FORMERR)
+    .add_question(new DNSQuestion("www.google.com", T_A));
+  DNSPacket rspok;
+  rspok.set_response()
+    .add_question(new DNSQuestion("www.google.com", T_A))
+    .add_answer(new DNSARR("www.google.com", 100, {1, 2, 3, 4}));
+  EXPECT_CALL(server_, OnRequest("www.google.com", T_A))
+    .WillOnce(SetReply(&server_, &rspfail))
+    .WillOnce(SetReply(&server_, &rspok));
+
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_THAT(result.ai_, IncludesNumAddresses(1));
+  EXPECT_THAT(result.ai_, IncludesV4Address("1.2.3.4"));
+}
+
+TEST_P(MockChannelTestAI, SearchDomains) {
+  DNSPacket nofirst;
+  nofirst.set_response().set_aa().set_rcode(NXDOMAIN)
+    .add_question(new DNSQuestion("www.first.com", T_A));
+  ON_CALL(server_, OnRequest("www.first.com", T_A))
+    .WillByDefault(SetReply(&server_, &nofirst));
+  DNSPacket nosecond;
+  nosecond.set_response().set_aa().set_rcode(NXDOMAIN)
+    .add_question(new DNSQuestion("www.second.org", T_A));
+  ON_CALL(server_, OnRequest("www.second.org", T_A))
+    .WillByDefault(SetReply(&server_, &nosecond));
+  DNSPacket yesthird;
+  yesthird.set_response().set_aa()
+    .add_question(new DNSQuestion("www.third.gov", T_A))
+    .add_answer(new DNSARR("www.third.gov", 0x0200, {2, 3, 4, 5}));
+  ON_CALL(server_, OnRequest("www.third.gov", T_A))
+    .WillByDefault(SetReply(&server_, &yesthird));
+
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "www", NULL, &hints, AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_THAT(result.ai_, IncludesNumAddresses(1));
+  EXPECT_THAT(result.ai_, IncludesV4Address("2.3.4.5"));
+}
+
+TEST_P(MockChannelTestAI, FamilyV6) {
+  DNSPacket rsp6;
+  rsp6.set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_AAAA))
+    .add_answer(new DNSAaaaRR("example.com", 100,
+                              {0x21, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03}));
+  ON_CALL(server_, OnRequest("example.com", T_AAAA))
+    .WillByDefault(SetReply(&server_, &rsp6));
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET6;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "example.com.", NULL, &hints,
+                   AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_THAT(result.ai_, IncludesNumAddresses(1));
+  EXPECT_THAT(result.ai_, IncludesV6Address("2121:0000:0000:0000:0000:0000:0000:0303"));
+}
+
+#ifndef CARES_SYMBOL_HIDING
+// Test case for Issue #662
+TEST_P(MockChannelTestAI, PartialQueryCancel) {
+  std::vector<byte> nothing;
+  DNSPacket reply;
+  reply.set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_A))
+    .add_answer(new DNSARR("example.com", 0x0100, {0x01, 0x02, 0x03, 0x04}));
+
+  ON_CALL(server_, OnRequest("example.com", T_A))
+    .WillByDefault(SetReply(&server_, &reply));
+
+  ON_CALL(server_, OnRequest("example.com", T_AAAA))
+    .WillByDefault(SetReplyData(&server_, nothing));
+
+
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_UNSPEC;
+  ares_getaddrinfo(channel_, "example.com.", NULL, &hints,
+                   AddrInfoCallback, &result);
+
+  // After 100ms, issues ares_cancel(), this should be enough time for the A
+  // record reply, but before the timeout on the AAAA record.
+  Process(100);
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ECANCELLED, result.status_);
+}
+#endif
+
+TEST_P(MockChannelTestAI, FamilyV4) {
+  DNSPacket rsp4;
+  rsp4.set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_A))
+    .add_answer(new DNSARR("example.com", 100, {2, 3, 4, 5}));
+  ON_CALL(server_, OnRequest("example.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp4));
+  AddrInfoResult result = {};
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "example.com.", NULL, &hints,
+                   AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_THAT(result.ai_, IncludesNumAddresses(1));
+  EXPECT_THAT(result.ai_, IncludesV4Address("2.3.4.5"));
+}
+
+TEST_P(MockChannelTestAI, FamilyV4_MultipleAddresses) {
+  DNSPacket rsp4;
+  rsp4.set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_A))
+    .add_answer(new DNSARR("example.com", 100, {2, 3, 4, 5}))
+    .add_answer(new DNSARR("example.com", 100, {7, 8, 9, 0}));
+  ON_CALL(server_, OnRequest("example.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp4));
+  AddrInfoResult result = {};
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "example.com.", NULL, &hints,
+                   AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  std::stringstream ss;
+  ss << result.ai_;
+  EXPECT_EQ("{addr=[2.3.4.5], addr=[7.8.9.0]}", ss.str());
+}
+
+TEST_P(MockChannelTestAI, FamilyUnspecified) {
+  DNSPacket rsp6;
+  rsp6.set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_AAAA))
+    .add_answer(new DNSAaaaRR("example.com", 100,
+                              {0x21, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03}));
+  ON_CALL(server_, OnRequest("example.com", T_AAAA))
+    .WillByDefault(SetReply(&server_, &rsp6));
+  DNSPacket rsp4;
+  rsp4.set_response().set_aa()
+    .add_question(new DNSQuestion("example.com", T_A))
+    .add_answer(new DNSARR("example.com", 100, {2, 3, 4, 5}));
+  ON_CALL(server_, OnRequest("example.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp4));
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "example.com.", NULL, &hints,
+                   AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_THAT(result.ai_, IncludesNumAddresses(2));
+  EXPECT_THAT(result.ai_, IncludesV4Address("2.3.4.5"));
+  EXPECT_THAT(result.ai_, IncludesV6Address("2121:0000:0000:0000:0000:0000:0000:0303"));
+}
+
 const char *af_tostr(int af)
 {
   switch (af) {
@@ -472,6 +658,9 @@ std::string PrintFamilyMode(const testing::TestParamInfo<std::pair<int, bool>> &
   return name;
 }
 
+INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockChannelTestAI,
+                       ::testing::ValuesIn(families_modes), PrintFamilyMode);
+
 INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockUDPChannelTestAI,
                         ::testing::ValuesIn(families), PrintFamily);
 
@@ -485,4 +674,7 @@ INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockExtraOptsNDots5TestAI,
       ::testing::ValuesIn(families_modes), PrintFamilyMode);
 
 INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockNoCheckRespChannelTestAI,
+			::testing::ValuesIn(families_modes), PrintFamilyMode);
+
+INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockEDNSChannelTestAI,
 			::testing::ValuesIn(families_modes), PrintFamilyMode);
