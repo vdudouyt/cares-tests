@@ -624,6 +624,82 @@ TEST_P(MockChannelTestAI, FamilyUnspecified) {
   EXPECT_THAT(result.ai_, IncludesV6Address("2121:0000:0000:0000:0000:0000:0000:0303"));
 }
 
+class MockMultiServerChannelTestAI
+  : public MockChannelOptsTest,
+    public ::testing::WithParamInterface< std::pair<int, bool> > {
+ public:
+  MockMultiServerChannelTestAI(bool rotate)
+    : MockChannelOptsTest(3, GetParam().first, GetParam().second, nullptr, rotate ? ARES_OPT_ROTATE : ARES_OPT_NOROTATE) {}
+  void CheckExample() {
+    AddrInfoResult result;
+    struct ares_addrinfo_hints hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_flags = ARES_AI_NOSORT;
+    ares_getaddrinfo(channel_, "www.example.com.", NULL, &hints, AddrInfoCallback, &result);
+    Process();
+    EXPECT_TRUE(result.done_);
+    EXPECT_EQ(result.status_, ARES_SUCCESS);
+    EXPECT_THAT(result.ai_, IncludesNumAddresses(1));
+    EXPECT_THAT(result.ai_, IncludesV4Address("2.3.4.5"));
+  }
+};
+
+class NoRotateMultiMockTestAI : public MockMultiServerChannelTestAI {
+ public:
+  NoRotateMultiMockTestAI() : MockMultiServerChannelTestAI(false) {}
+};
+
+TEST_P(NoRotateMultiMockTestAI, ThirdServer) {
+  struct ares_options opts;
+  int optmask = 0;
+  memset(&opts, 0, sizeof(opts));
+  EXPECT_EQ(ARES_SUCCESS, ares_save_options(channel_, &opts, &optmask));
+  EXPECT_EQ(ARES_OPT_NOROTATE, (optmask & ARES_OPT_NOROTATE));
+  ares_destroy_options(&opts);
+
+  DNSPacket servfailrsp;
+  servfailrsp.set_response().set_aa().set_rcode(SERVFAIL)
+    .add_question(new DNSQuestion("www.example.com", T_A));
+  DNSPacket notimplrsp;
+  notimplrsp.set_response().set_aa().set_rcode(NOTIMP)
+    .add_question(new DNSQuestion("www.example.com", T_A));
+  DNSPacket okrsp;
+  okrsp.set_response().set_aa()
+    .add_question(new DNSQuestion("www.example.com", T_A))
+    .add_answer(new DNSARR("www.example.com", 100, {2,3,4,5}));
+
+   EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &servfailrsp));
+  EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &notimplrsp));
+  EXPECT_CALL(*servers_[2], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[2].get(), &okrsp));
+  CheckExample();
+
+  // Second time around, still starts from server [2], as [0] and [1] both
+  // recorded failures
+  EXPECT_CALL(*servers_[2], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[2].get(), &servfailrsp));
+  EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &notimplrsp));
+  EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &okrsp));
+  CheckExample();
+
+  // Third time around, server order is [1] (f0), [2] (f1), [0] (f2), which
+  // means [1] will get called twice in a row as after the first call
+  // order will be  [1] (f1), [2] (f1), [0] (f2) since sort order is
+  // (failure count, index)
+  EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &servfailrsp))
+    .WillOnce(SetReply(servers_[1].get(), &notimplrsp));
+  EXPECT_CALL(*servers_[2], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[2].get(), &notimplrsp));
+  EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &okrsp));
+  CheckExample();
+}
+
 const char *af_tostr(int af)
 {
   switch (af) {
@@ -677,4 +753,7 @@ INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockNoCheckRespChannelTestAI,
 			::testing::ValuesIn(families_modes), PrintFamilyMode);
 
 INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockEDNSChannelTestAI,
+			::testing::ValuesIn(families_modes), PrintFamilyMode);
+
+INSTANTIATE_TEST_SUITE_P(TransportModesAI, NoRotateMultiMockTestAI,
 			::testing::ValuesIn(families_modes), PrintFamilyMode);

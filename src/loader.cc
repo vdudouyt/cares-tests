@@ -66,3 +66,5 @@ IMPL_SHIM(void, ares_free_string, (void *str), (str));
 IMPL_SHIM(void, ares_set_local_dev, (ares_channel_t *channel, const char *local_dev_name), (channel, local_dev_name));
 IMPL_SHIM(void, ares_set_local_ip4, (ares_channel_t *channel, unsigned int local_ip), (channel, local_ip));
 IMPL_SHIM(void, ares_set_local_ip6, (ares_channel_t *channel, const unsigned char *local_ip6), (channel, local_ip6));
+IMPL_SHIM(int, ares_save_options, (ares_channel_t *channel, struct ares_options *options, int *optmask), (channel, options, optmask));
+IMPL_SHIM(void, ares_destroy_options, (struct ares_options *options), (options));
