@@ -307,6 +307,12 @@ std::ostream &operator<<(std::ostream &os, const AddrInfoResult &result);
 void AddrInfoCallback(void *data, int status, int timeouts,
                       struct ares_addrinfo *res);
 
+// gMock action to set the reply for a mock server.
+ACTION_P2(SetReplyData, mockserver, data)
+{
+  mockserver->SetReplyData(data);
+}
+
 ACTION_P2(SetReply, mockserver, reply)
 {
   mockserver->SetReply(reply);
