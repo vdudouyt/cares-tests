@@ -363,6 +363,81 @@ TEST_P(MockExtraOptsNDots5TestAI, SimpleQuery) {
   EXPECT_THAT(result.ai_, IncludesV4Address("123.45.67.8"));
 }
 
+class MockFlagsChannelOptsTestAI
+    : public MockChannelOptsTest,
+      public ::testing::WithParamInterface< std::pair<int, bool> > {
+ public:
+  MockFlagsChannelOptsTestAI(int flags)
+    : MockChannelOptsTest(1, GetParam().first, GetParam().second,
+                          FillOptions(&opts_, flags), ARES_OPT_FLAGS) {}
+  static struct ares_options* FillOptions(struct ares_options * opts, int flags) {
+    memset(opts, 0, sizeof(struct ares_options));
+    opts->flags = flags;
+    return opts;
+  }
+ private:
+  struct ares_options opts_;
+};
+
+class MockNoCheckRespChannelTestAI : public MockFlagsChannelOptsTestAI {
+ public:
+  MockNoCheckRespChannelTestAI() : MockFlagsChannelOptsTestAI(ARES_FLAG_NOCHECKRESP) {}
+};
+
+TEST_P(MockNoCheckRespChannelTestAI, ServFailResponse) {
+  DNSPacket rsp;
+  rsp.set_response().set_aa()
+    .add_question(new DNSQuestion("www.google.com", T_A));
+  rsp.set_rcode(SERVFAIL);
+  ON_CALL(server_, OnRequest("www.google.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp));
+
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ESERVFAIL, result.status_);
+}
+
+TEST_P(MockNoCheckRespChannelTestAI, NotImplResponse) {
+  DNSPacket rsp;
+  rsp.set_response().set_aa()
+    .add_question(new DNSQuestion("www.google.com", T_A));
+  rsp.set_rcode(NOTIMP);
+  ON_CALL(server_, OnRequest("www.google.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp));
+
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_ENOTIMP, result.status_);
+}
+
+TEST_P(MockNoCheckRespChannelTestAI, RefusedResponse) {
+  DNSPacket rsp;
+  rsp.set_response().set_aa()
+    .add_question(new DNSQuestion("www.google.com", T_A));
+  rsp.set_rcode(REFUSED);
+  ON_CALL(server_, OnRequest("www.google.com", T_A))
+    .WillByDefault(SetReply(&server_, &rsp));
+
+  AddrInfoResult result;
+  struct ares_addrinfo_hints hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_flags = ARES_AI_NOSORT;
+  ares_getaddrinfo(channel_, "www.google.com.", NULL, &hints, AddrInfoCallback, &result);
+  Process();
+  EXPECT_TRUE(result.done_);
+  EXPECT_EQ(ARES_EREFUSED, result.status_);
+}
+
 const char *af_tostr(int af)
 {
   switch (af) {
@@ -408,3 +483,6 @@ INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockExtraOptsTestAI,
 
 INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockExtraOptsNDots5TestAI,
       ::testing::ValuesIn(families_modes), PrintFamilyMode);
+
+INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockNoCheckRespChannelTestAI,
+			::testing::ValuesIn(families_modes), PrintFamilyMode);
