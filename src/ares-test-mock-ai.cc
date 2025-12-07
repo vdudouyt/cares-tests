@@ -129,7 +129,24 @@ TEST_P(MockUDPChannelTestAI, GetAddrInfoParallelLookups) {
   EXPECT_THAT(result3.ai_, IncludesV4Address("2.3.4.5"));
 }
 
-/*
+const char *af_tostr(int af)
+{
+  switch (af) {
+    case AF_INET:
+      return "ipv4";
+    case AF_INET6:
+      return "ipv6";
+  }
+  return "ipunknown";
+}
+
+std::string PrintFamily(const testing::TestParamInfo<int> &info)
+{
+  std::string name;
+
+  name += af_tostr(info.param);
+  return name;
+}
+
 INSTANTIATE_TEST_SUITE_P(AddressFamiliesAI, MockUDPChannelTestAI,
-                        ::testing::ValuesIn(ares::test::families), PrintFamily);
-*/
+                        ::testing::ValuesIn(families), PrintFamily);

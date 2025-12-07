@@ -13,6 +13,8 @@
 #include "dns-proto.h"
 #include "ares_dns.h"
 
+extern std::vector<int> families;
+
 struct HostEnt {
   HostEnt() : addrtype_(-1)
   {

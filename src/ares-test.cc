@@ -5,6 +5,8 @@
 #include <netinet/tcp.h>
 
 bool verbose = false;
+const std::vector<int> both_families = {AF_INET, AF_INET6};
+std::vector<int> families = both_families;
 
 HostEnt::HostEnt(const struct hostent *hostent) : addrtype_(-1) {
   if (!hostent)
