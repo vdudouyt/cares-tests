@@ -2,6 +2,9 @@
 #include "dns-proto.h"
 #include <fcntl.h>
 #include <unistd.h>
+#include <netinet/tcp.h>
+
+bool verbose = false;
 
 HostEnt::HostEnt(const struct hostent *hostent) : addrtype_(-1) {
   if (!hostent)
@@ -253,4 +256,412 @@ void NameInfoCallback(void *data, int status, int timeouts,
   result->timeouts_ = timeouts;
   result->node_ = std::string(node ? node : "");
   result->service_ = std::string(service ? service : "");
+}
+
+void AddrInfoCallback(void *data, int status, int timeouts,                                                                                
+                      struct ares_addrinfo *ai) {
+  EXPECT_NE(nullptr, data);
+  AddrInfoResult* result = reinterpret_cast<AddrInfoResult*>(data);
+  result->done_ = true;
+  result->status_ = status;
+  result->timeouts_= timeouts;
+  if (ai)
+    result->ai_ = AddrInfo(ai);
+}
+
+static constexpr unsigned short dynamic_port = 0;
+unsigned short mock_port = dynamic_port;
+
+MockChannelOptsTest::MockChannelOptsTest(int count,
+                                         int family,
+                                         bool force_tcp,
+                                         struct ares_options* givenopts,
+                                         int optmask)
+  : servers_(BuildServers(count, family, mock_port)),
+    server_(*servers_[0].get()), channel_(nullptr) {
+  // Set up channel options.
+  struct ares_options opts;
+  if (givenopts) {
+    memcpy(&opts, givenopts, sizeof(opts));
+  } else {
+    memset(&opts, 0, sizeof(opts));
+  }
+
+  // Point the library at the first mock server by default (overridden below).
+  opts.udp_port = server_.udpport();
+  optmask |= ARES_OPT_UDP_PORT;
+  opts.tcp_port = server_.tcpport();
+  optmask |= ARES_OPT_TCP_PORT;
+
+  // If not already overridden, set short-ish timeouts.
+  if (!(optmask & (ARES_OPT_TIMEOUTMS|ARES_OPT_TIMEOUT))) {
+    opts.timeout = 1500;
+    optmask |= ARES_OPT_TIMEOUTMS;
+  }
+  // If not already overridden, set 3 retries.
+  if (!(optmask & ARES_OPT_TRIES)) {
+    opts.tries = 3;
+    optmask |= ARES_OPT_TRIES;
+  }
+  // If not already overridden, set search domains.
+  const char *domains[3] = {"first.com", "second.org", "third.gov"};
+  if (!(optmask & ARES_OPT_DOMAINS)) {
+    opts.ndomains = 3;
+    opts.domains = (char**)domains;
+    optmask |= ARES_OPT_DOMAINS;
+  }
+  if (force_tcp) {
+    opts.flags |= ARES_FLAG_USEVC;
+    optmask |= ARES_OPT_FLAGS;
+  }
+
+  EXPECT_EQ(ARES_SUCCESS, ares_init_options(&channel_, &opts, optmask));
+  EXPECT_NE(nullptr, channel_);
+
+  // Set up servers after construction so we can set individual ports
+  struct ares_addr_port_node* prev = nullptr;
+  struct ares_addr_port_node* first = nullptr;
+  for (const auto& server : servers_) {
+    struct ares_addr_port_node* node = (struct ares_addr_port_node*)malloc(sizeof(*node));
+    if (prev) {
+      prev->next = node;
+    } else {
+      first = node;
+    }
+    node->next = nullptr;
+    node->family = family;
+    node->udp_port = server->udpport();
+    node->tcp_port = server->tcpport();
+    if (family == AF_INET) {
+      node->addr.addr4.s_addr = htonl(0x7F000001);
+    } else {
+      memset(&node->addr.addr6, 0, sizeof(node->addr.addr6));
+      node->addr.addr6._S6_un._S6_u8[15] = 1;
+    }
+    prev = node;
+  }
+  EXPECT_EQ(ARES_SUCCESS, ares_set_servers_ports(channel_, first));
+
+  while (first) {
+    prev = first;
+    first = first->next;
+    free(prev);
+  }
+}
+
+MockChannelOptsTest::~MockChannelOptsTest() {
+  if (channel_) {
+    ares_destroy(channel_);
+  }
+  channel_ = nullptr;
+}
+
+MockChannelOptsTest::NiceMockServers MockChannelOptsTest::BuildServers(int count, int family, unsigned short base_port) {
+  NiceMockServers servers;
+  assert(count > 0);
+  for (unsigned short ii = 0; ii < count; ii++) {
+    unsigned short port = base_port == dynamic_port ? dynamic_port : base_port + ii;
+    std::unique_ptr<NiceMockServer> server(new NiceMockServer(family, port));
+    servers.push_back(std::move(server));
+  }
+  return servers;
+}
+
+MockServer::~MockServer() {
+  for (ares_socket_t fd : connfds_) {
+    close(fd);
+  }
+  close(tcpfd_);
+  close(udpfd_);
+  free(tcp_data_);
+}
+
+void MockChannelOptsTest::ProcessFD(ares_socket_t fd) {
+  for (auto& server : servers_) {
+    server->ProcessFD(fd);
+  }
+}
+
+void MockChannelOptsTest::Process(unsigned int cancel_ms) {
+  using namespace std::placeholders;
+  ProcessWork(channel_,
+              std::bind(&MockChannelOptsTest::fds, this),
+              std::bind(&MockChannelOptsTest::ProcessFD, this, _1),
+              cancel_ms);
+}
+
+void MockServer::ProcessFD(ares_socket_t fd) {
+  if (fd != tcpfd_ && fd != udpfd_ && connfds_.find(fd) == connfds_.end()) {
+    // Not one of our FDs.
+    return;
+  }
+  if (fd == tcpfd_) {
+    ares_socket_t connfd = accept(tcpfd_, NULL, NULL);
+    if (connfd < 0) {
+      std::cerr << "Error accepting connection on fd " << fd << std::endl;
+    } else {
+      connfds_.insert(connfd);
+    }
+    return;
+  }
+
+  // Activity on a data-bearing file descriptor.
+  struct sockaddr_storage addr;
+  socklen_t addrlen = sizeof(addr);
+  byte buffer[2048];
+  ares_ssize_t len = (ares_ssize_t)recvfrom(fd, buffer, sizeof(buffer), 0,
+                     (struct sockaddr *)&addr, &addrlen);
+
+  if (fd != udpfd_) {
+    if (len <= 0) {
+      connfds_.erase(std::find(connfds_.begin(), connfds_.end(), fd));
+      close(fd);
+      free(tcp_data_);
+      tcp_data_ = NULL;
+      tcp_data_len_ = 0;
+      return;
+    }
+    tcp_data_ = (unsigned char *)realloc(tcp_data_, tcp_data_len_ + (size_t)len);
+    memcpy(tcp_data_ + tcp_data_len_, buffer, (size_t)len);
+    tcp_data_len_ += (size_t)len;
+
+    /* TCP might aggregate the various requests into a single packet, so we
+     * need to split */
+    while (tcp_data_len_ > 2) {
+      size_t tcplen = ((size_t)tcp_data_[0] << 8) + (size_t)tcp_data_[1];
+      if (tcp_data_len_ - 2 < tcplen)
+        break;
+
+      ProcessPacket(fd, &addr, addrlen, tcp_data_ + 2, (int)tcplen);
+
+      /* strip off processed data if connection not terminated */
+      if (tcp_data_ != NULL) {
+        memmove(tcp_data_, tcp_data_ + tcplen + 2, tcp_data_len_ - 2 - tcplen);
+        tcp_data_len_ -= 2 + tcplen;
+      }
+    }
+  } else {
+    /* UDP is always a single packet */
+    ProcessPacket(fd, &addr, addrlen, buffer, (int)len);
+  }
+
+}
+
+static unsigned short getaddrport(struct sockaddr_storage *addr)                                                                           
+{
+  if (addr->ss_family == AF_INET)
+    return ntohs(((struct sockaddr_in *)(void *)addr)->sin_port);
+
+  return ntohs(((struct sockaddr_in6 *)(void *)addr)->sin6_port);
+}
+
+void MockServer::ProcessPacket(ares_socket_t fd, struct sockaddr_storage *addr, ares_socklen_t addrlen,
+                               byte *data, int len) {
+
+  // Assume the packet is a well-formed DNS request and extract the request
+  // details.
+  if (len < NS_HFIXEDSZ) {
+    std::cerr << "Packet too short (" << len << ")" << std::endl;
+    return;
+  }
+  int qid = DNS_HEADER_QID(data);
+  if (DNS_HEADER_QR(data) != 0) {
+    std::cerr << "Not a request" << std::endl;
+    return;
+  }
+  if (DNS_HEADER_OPCODE(data) != O_QUERY) {
+    std::cerr << "Not a query (opcode " << DNS_HEADER_OPCODE(data)
+              << ")" << std::endl;
+    return;
+  }
+  if (DNS_HEADER_QDCOUNT(data) != 1) {
+    std::cerr << "Unexpected question count (" << DNS_HEADER_QDCOUNT(data)
+              << ")" << std::endl;
+    return;
+  }
+  byte* question = data + NS_HFIXEDSZ;
+  int qlen = len - NS_HFIXEDSZ;
+
+  char *name = nullptr;
+  long enclen;
+  ares_expand_name(question, data, len, &name, &enclen);
+  if (!name) {
+    std::cerr << "Failed to retrieve name" << std::endl;
+    return;
+  }
+  if (enclen > qlen) {
+    std::cerr << "(error, encoded name len " << enclen << "bigger than remaining data " << qlen << " bytes)" << std::endl;
+    return;
+  }
+  qlen -= (int)enclen;
+  question += enclen;
+  std::string namestr(name);
+  ares_free_string(name);
+
+  if (qlen < 4) {
+    std::cerr << "Unexpected question size (" << qlen
+              << " bytes after name)" << std::endl;
+    return;
+  }
+  if (DNS_QUESTION_CLASS(question) != C_IN) {
+    std::cerr << "Unexpected question class (" << DNS_QUESTION_CLASS(question)
+              << ")" << std::endl;
+    return;
+  }
+  int rrtype = DNS_QUESTION_TYPE(question);
+
+  if (verbose) {
+    std::vector<byte> req(data, data + len);
+    std::cerr << "received " << (fd == udpfd_ ? "UDP" : "TCP") << " request " << PacketToString(req)
+              << " on port " << (fd == udpfd_ ? udpport_ : tcpport_)
+              << ":" << getaddrport(addr) << std::endl;
+    std::cerr << "ProcessRequest(" << qid << ", '" << namestr
+              << "', " << RRTypeToString(rrtype) << ")" << std::endl;
+  }
+  ProcessRequest(fd, addr, addrlen, qid, namestr, rrtype);
+
+}
+
+MockServer::MockServer(int family, unsigned short port)
+  : udpport_(port), tcpport_(port), qid_(-1) {
+  // Create a TCP socket to receive data on.
+  tcp_data_ = NULL;
+  tcp_data_len_ = 0;
+  tcpfd_ = socket(family, SOCK_STREAM, 0);
+  EXPECT_NE(ARES_SOCKET_BAD, tcpfd_);
+  int optval = 1;
+  setsockopt(tcpfd_, SOL_SOCKET, SO_REUSEADDR,
+             &optval , sizeof(int));
+  // Send TCP data right away.
+  setsockopt(tcpfd_, IPPROTO_TCP, TCP_NODELAY,
+             &optval , sizeof(int));
+
+  // Create a UDP socket to receive data on.
+  udpfd_ = socket(family, SOCK_DGRAM, 0);
+  EXPECT_NE(ARES_SOCKET_BAD, udpfd_);
+
+  // Bind the sockets to the given port.
+  if (family == AF_INET) {
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(tcpport_);
+    int tcprc = bind(tcpfd_, (struct sockaddr*)&addr, sizeof(addr));
+    EXPECT_EQ(0, tcprc) << "Failed to bind AF_INET to TCP port " << tcpport_;
+    addr.sin_port = htons(udpport_);
+    int udprc = bind(udpfd_, (struct sockaddr*)&addr, sizeof(addr));
+    EXPECT_EQ(0, udprc) << "Failed to bind AF_INET to UDP port " << udpport_;
+    // retrieve system-assigned port
+    if (udpport_ == dynamic_port) {
+      ares_socklen_t len = sizeof(addr);
+      auto result = getsockname(udpfd_, (struct sockaddr*)&addr, &len);
+      EXPECT_EQ(0, result);
+      udpport_ = ntohs(addr.sin_port);
+      EXPECT_NE(dynamic_port, udpport_);
+    }
+    if (tcpport_ == dynamic_port) {
+      ares_socklen_t len = sizeof(addr);
+      auto result = getsockname(tcpfd_, (struct sockaddr*)&addr, &len);
+      EXPECT_EQ(0, result);
+      tcpport_ = ntohs(addr.sin_port);
+      EXPECT_NE(dynamic_port, tcpport_);
+    }
+  } else {
+    EXPECT_EQ(AF_INET6, family);
+    struct sockaddr_in6 addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin6_family = AF_INET6;
+    memset(&addr.sin6_addr, 0, sizeof(addr.sin6_addr));  // in6addr_any
+    addr.sin6_port = htons(tcpport_);
+    int tcprc = bind(tcpfd_, (struct sockaddr*)&addr, sizeof(addr));
+    EXPECT_EQ(0, tcprc) << "Failed to bind AF_INET6 to TCP port " << tcpport_;
+    addr.sin6_port = htons(udpport_);
+    int udprc = bind(udpfd_, (struct sockaddr*)&addr, sizeof(addr));
+    EXPECT_EQ(0, udprc) << "Failed to bind AF_INET6 to UDP port " << udpport_;
+    // retrieve system-assigned port
+    if (udpport_ == dynamic_port) {
+      ares_socklen_t len = sizeof(addr);
+      auto result = getsockname(udpfd_, (struct sockaddr*)&addr, &len);
+      EXPECT_EQ(0, result);
+      udpport_ = ntohs(addr.sin6_port);
+      EXPECT_NE(dynamic_port, udpport_);
+    }
+    if (tcpport_ == dynamic_port) {
+      ares_socklen_t len = sizeof(addr);
+      auto result = getsockname(tcpfd_, (struct sockaddr*)&addr, &len);
+      EXPECT_EQ(0, result);
+      tcpport_ = ntohs(addr.sin6_port);
+      EXPECT_NE(dynamic_port, tcpport_);
+    }
+  }
+  if (verbose) std::cerr << "Configured "
+                         << (family == AF_INET ? "IPv4" : "IPv6")
+                         << " mock server with TCP socket " << tcpfd_
+                         << " on port " << tcpport_
+                         << " and UDP socket " << udpfd_
+                         << " on port " << udpport_ << std::endl;
+
+  // For TCP, also need to listen for connections.
+  EXPECT_EQ(0, listen(tcpfd_, 5)) << "Failed to listen for TCP connections";
+}
+
+std::set<ares_socket_t> MockChannelOptsTest::fds() const {
+  std::set<ares_socket_t> fds;
+  for (const auto& server : servers_) {
+    std::set<ares_socket_t> serverfds = server->fds();
+    fds.insert(serverfds.begin(), serverfds.end());
+  }
+  return fds;
+}
+
+std::set<ares_socket_t> MockServer::fds() const {
+  std::set<ares_socket_t> result = connfds_;
+  result.insert(tcpfd_);
+  result.insert(udpfd_);
+  return result;
+}
+
+void MockServer::ProcessRequest(ares_socket_t fd, struct sockaddr_storage* addr, ares_socklen_t addrlen,
+                                int qid, const std::string& name, int rrtype) {
+  // Before processing, let gMock know the request is happening.
+  OnRequest(name, rrtype);
+
+  if (reply_.size() == 0) {
+    return;
+  }
+
+  // Make a local copy of the current pending reply.
+  std::vector<byte> reply = reply_;
+
+  if (qid_ >= 0) {
+    // Use the explicitly specified query ID.
+    qid = qid_;
+  }
+  if (reply.size() >=  2) {
+    // Overwrite the query ID if space to do so.
+    reply[0] = (byte)((qid >> 8) & 0xff);
+    reply[1] = (byte)(qid & 0xff);
+  }
+  if (verbose) {
+    std::cerr << "sending reply " << PacketToString(reply)
+              << " on port " << ((fd == udpfd_) ? udpport_ : tcpport_)
+              << ":" << getaddrport(addr) << std::endl;
+  }
+
+  // Prefix with 2-byte length if TCP.
+  if (fd != udpfd_) {
+    int len = (int)reply.size();
+    std::vector<byte> vlen = {(byte)((len & 0xFF00) >> 8), (byte)(len & 0xFF)};
+    reply.insert(reply.begin(), vlen.begin(), vlen.end());
+    // Also, don't bother with the destination address.
+    addr = nullptr;
+    addrlen = 0;
+  }
+
+  ares_ssize_t rc = (ares_ssize_t)sendto(fd, reply.data(), reply.size(), 0,
+                  (struct sockaddr *)addr, addrlen);
+  if (rc < static_cast<ares_ssize_t>(reply.size())) {
+    std::cerr << "Failed to send full reply, rc=" << rc << std::endl;
+  }
 }

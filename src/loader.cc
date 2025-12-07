@@ -56,3 +56,9 @@ IMPL_SHIM(int, ares_set_servers, (ares_channel_t *channel, const struct ares_add
 IMPL_SHIM(int, ares_set_servers_ports, (ares_channel_t *channel, const struct ares_addr_port_node *servers), (channel, servers));
 IMPL_SHIM(int, ares_set_servers_csv, (ares_channel_t *channel, const char *servers), (channel, servers));
 IMPL_SHIM(int, ares_set_servers_ports_csv, (ares_channel_t *channel, const char *servers), (channel, servers));
+
+IMPL_SHIM(void, ares_getaddrinfo, (ares_channel_t *channel, const char *node, const char *service, const struct ares_addrinfo_hints *hints, ares_addrinfo_callback callback, void *arg), (channel, node, service, hints, callback, arg));
+IMPL_SHIM(int, ares_inet_pton, (int af, const char *src, void *dst), (af, src, dst));
+IMPL_SHIM(void, ares_freeaddrinfo, (struct ares_addrinfo *ai), (ai));
+IMPL_SHIM(int, ares_expand_name, (const unsigned char *encoded, const unsigned char *abuf, int alen, char **s, long *enclen), (encoded, abuf, alen, s, enclen));
+IMPL_SHIM(void, ares_free_string, (void *str), (str));

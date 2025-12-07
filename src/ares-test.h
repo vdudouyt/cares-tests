@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <dlfcn.h>
 #include "dns-proto.h"
+#include "ares_dns.h"
 
 struct HostEnt {
   HostEnt() : addrtype_(-1)
@@ -172,3 +173,139 @@ void ProcessWork(ares_channel_t *channel,
    std::function<std::set<ares_socket_t>()> get_extrafds,
    std::function<void(ares_socket_t)> process_extra,
    unsigned int cancel_ms = 0);
+
+class MockServer {
+public:
+  MockServer(int family, unsigned short port);
+  ~MockServer();
+
+  // Mock method indicating the processing of a particular <name, RRtype>
+  // request.
+  MOCK_METHOD2(OnRequest, void(const std::string &name, int rrtype));
+
+  // Set the reply to be sent next; the query ID field will be overwritten
+  // with the value from the request.
+  void SetReplyData(const std::vector<byte> &reply)
+  {
+    reply_ = reply;
+  }
+
+  void SetReply(const DNSPacket *reply)
+  {
+    SetReplyData(reply->data());
+  }
+
+  void SetReplyQID(int qid)
+  {
+    qid_ = qid;
+  }
+
+  void Disconnect()
+  {
+    for (ares_socket_t fd : connfds_) {
+      close(fd);
+    }
+    connfds_.clear();
+    free(tcp_data_);
+    tcp_data_     = NULL;
+    tcp_data_len_ = 0;
+  }
+
+  // The set of file descriptors that the server handles.
+  std::set<ares_socket_t> fds() const;
+
+  // Process activity on a file descriptor.
+  void                    ProcessFD(ares_socket_t fd);
+
+  // Ports the server is responding to
+  unsigned short          udpport() const
+  {
+    return udpport_;
+  }
+
+  unsigned short tcpport() const
+  {
+    return tcpport_;
+  }
+
+private:
+  void           ProcessRequest(ares_socket_t fd, struct sockaddr_storage *addr,
+                                ares_socklen_t addrlen, int qid, const std::string &name,
+                                int rrtype);
+  void           ProcessPacket(ares_socket_t fd, struct sockaddr_storage *addr,
+                               ares_socklen_t addrlen, byte *data, int len);
+  unsigned short udpport_;
+  unsigned short tcpport_;
+  ares_socket_t  udpfd_;
+  ares_socket_t  tcpfd_;
+  std::set<ares_socket_t> connfds_;
+  std::vector<byte>       reply_;
+  int                     qid_;
+  unsigned char          *tcp_data_;
+  size_t                  tcp_data_len_;
+};
+
+class MockChannelOptsTest : public LibraryTest {
+public:
+  MockChannelOptsTest(int count, int family, bool force_tcp,
+                      struct ares_options *givenopts, int optmask);
+  ~MockChannelOptsTest();
+
+  // Process all pending work on ares-owned and mock-server-owned file
+  // descriptors.
+  void Process(unsigned int cancel_ms = 0);
+
+protected:
+  // NiceMockServer doesn't complain about uninteresting calls.
+  typedef testing::NiceMock<MockServer>                NiceMockServer;
+  typedef std::vector<std::unique_ptr<NiceMockServer>> NiceMockServers;
+
+  std::set<ares_socket_t>                              fds() const;
+  void                   ProcessFD(ares_socket_t fd);
+
+  static NiceMockServers BuildServers(int count, int family,
+                                      unsigned short base_port);
+
+  NiceMockServers        servers_;
+  // Convenience reference to first server.
+  NiceMockServer        &server_;
+  ares_channel_t        *channel_;
+};
+
+struct AddrInfoDeleter {                                                                                                                   
+  void operator()(ares_addrinfo *ptr)
+  {
+    if (ptr) {
+      ares_freeaddrinfo(ptr);
+    }
+  }
+};
+
+// C++ wrapper for struct ares_addrinfo.
+using AddrInfo = std::unique_ptr<ares_addrinfo, AddrInfoDeleter>;                                                                          
+
+std::ostream &operator<<(std::ostream &os, const AddrInfo &result);
+
+struct AddrInfoResult {
+  AddrInfoResult() : done_(false), status_(-1), timeouts_(0)
+  {
+  }
+
+  // Whether the callback has been invoked.
+  bool     done_;
+  // Explicitly provided result information.
+  int      status_;
+  int      timeouts_;
+  // Contents of the ares_addrinfo structure, if provided.
+  AddrInfo ai_;
+};
+
+std::ostream &operator<<(std::ostream &os, const AddrInfoResult &result);
+
+void AddrInfoCallback(void *data, int status, int timeouts,
+                      struct ares_addrinfo *res);
+
+ACTION_P2(SetReply, mockserver, reply)
+{
+  mockserver->SetReply(reply);
+}

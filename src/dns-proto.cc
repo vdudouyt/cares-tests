@@ -25,6 +25,7 @@
  */
 #include "ares.h"
 #include "dns-proto.h"
+#include "ares_dns.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -393,4 +394,287 @@ std::string HexDump(const byte *data, int len) {
 
 std::string HexDump(const char *data, int len) {
   return HexDump(reinterpret_cast<const byte*>(data), len);
+}
+
+std::string PacketToString(const std::vector<byte>& packet) {
+  const byte* data = packet.data();
+  int len = (int)packet.size();
+  std::stringstream ss;
+  if (len < NS_HFIXEDSZ) {
+    ss << "(too short, len " << len << ")";
+    return ss.str();
+  }
+  ss << ((DNS_HEADER_QR(data) == 0) ? "REQ " : "RSP ");
+  switch (DNS_HEADER_OPCODE(data)) {
+  case O_QUERY: ss << "QRY "; break;
+  case O_IQUERY: ss << "IQRY "; break;
+  case O_STATUS: ss << "STATUS "; break;
+  case O_NOTIFY: ss << "NOTIFY "; break;
+  case O_UPDATE: ss << "UPDATE "; break;
+  default: ss << "UNKNOWN(" << DNS_HEADER_OPCODE(data) << ") "; break;
+  }
+  if (DNS_HEADER_AA(data)) ss << "AA ";
+  if (DNS_HEADER_TC(data)) ss << "TC ";
+  if (DNS_HEADER_RD(data)) ss << "RD ";
+  if (DNS_HEADER_RA(data)) ss << "RA ";
+  if (DNS_HEADER_Z(data)) ss << "Z ";
+  if (DNS_HEADER_QR(data) == 1) ss << RcodeToString(DNS_HEADER_RCODE(data));
+
+  int nquestions = DNS_HEADER_QDCOUNT(data);
+  int nanswers = DNS_HEADER_ANCOUNT(data);
+  int nauths = DNS_HEADER_NSCOUNT(data);
+  int nadds = DNS_HEADER_ARCOUNT(data);
+
+  const byte* pq = data + NS_HFIXEDSZ;
+  len -= NS_HFIXEDSZ;
+  for (int ii = 0; ii < nquestions; ii++) {
+    ss << " Q:" << QuestionToString(packet, &pq, &len);
+  }
+  const byte* prr = pq;
+  for (int ii = 0; ii < nanswers; ii++) {
+    ss << " A:" << RRToString(packet, &prr, &len);
+  }
+  for (int ii = 0; ii < nauths; ii++) {
+    ss << " AUTH:" << RRToString(packet, &prr, &len);
+  }
+  for (int ii = 0; ii < nadds; ii++) {
+    ss << " ADD:" << RRToString(packet, &prr, &len);
+  }
+  return ss.str();
+}
+
+std::string QuestionToString(const std::vector<byte>& packet,
+                             const byte** data, int* len) {
+  std::stringstream ss;
+  ss << "{";
+  if (*len < NS_QFIXEDSZ) {
+    ss << "(too short, len " << *len << ")";
+    return ss.str();
+  }
+
+  char *name = nullptr;
+  long enclen;
+  int rc = ares_expand_name(*data, packet.data(), (int)packet.size(), &name, &enclen);
+  if (rc != ARES_SUCCESS) {
+    ss << "(error from ares_expand_name)";
+    return ss.str();
+  }
+  if (enclen > *len) {
+    ss << "(error, encoded name len " << enclen << "bigger than remaining data " << *len << " bytes)";
+    return ss.str();
+  }
+  *len -= (int)enclen;
+  *data += enclen;
+  ss << "'" << name << "' ";
+  ares_free_string(name);
+  if (*len < NS_QFIXEDSZ) {
+    ss << "(too short, len left " << *len << ")";
+    return ss.str();
+  }
+  ss << ClassToString(DNS_QUESTION_CLASS(*data)) << " ";
+  ss << RRTypeToString(DNS_QUESTION_TYPE(*data));
+  *data += NS_QFIXEDSZ;
+  *len -= NS_QFIXEDSZ;
+  ss << "}";
+  return ss.str();
+}
+
+std::string RRToString(const std::vector<byte>& packet,
+                       const byte** data, int* len) {
+  std::stringstream ss;
+  ss << "{";
+  if (*len < NS_RRFIXEDSZ) {
+    ss << "too short, len " << *len << ")";
+    return ss.str();
+  }
+
+  char *name = nullptr;
+  long enclen;
+  int rc = ares_expand_name(*data, packet.data(), (int)packet.size(), &name, &enclen);
+  if (rc != ARES_SUCCESS) {
+    ss << "(error from ares_expand_name)";
+    return ss.str();
+  }
+  if (enclen > *len) {
+    ss << "(error, encoded name len " << enclen << "bigger than remaining data " << *len << " bytes)";
+    return ss.str();
+  }
+  *len -= (int)enclen;
+  *data += enclen;
+  ss << "'" << name << "' ";
+  ares_free_string(name);
+  name = nullptr;
+
+  if (*len < NS_RRFIXEDSZ) {
+    ss << "(too short, len left " << *len << ")";
+    return ss.str();
+  }
+  int rrtype = DNS_RR_TYPE(*data);
+  if (rrtype == T_OPT) {
+    ss << "MAXUDP=" << DNS_RR_CLASS(*data) << " ";
+    ss << RRTypeToString(rrtype) << " ";
+    ss << "RCODE2=" << DNS_RR_TTL(*data);
+  } else {
+    ss << ClassToString(DNS_RR_CLASS(*data)) << " ";
+    ss << RRTypeToString(rrtype) << " ";
+    ss << "TTL=" << DNS_RR_TTL(*data);
+  }
+  int rdatalen = DNS_RR_LEN(*data);
+
+  *data += NS_RRFIXEDSZ;
+  *len -= NS_RRFIXEDSZ;
+  if (*len < rdatalen) {
+    ss << "(RR too long at " << rdatalen << ", len left " << *len << ")";
+  } else {
+    switch (rrtype) {
+    case T_A:
+    case T_AAAA:
+      ss << " " << AddressToString(*data, rdatalen);
+      break;
+    case T_TXT: {
+      const byte* p = *data;
+      while (p < (*data + rdatalen)) {
+        int len = *p++;
+        if ((p + len) <= (*data + rdatalen)) {
+          std::string txt(p, p + len);
+          ss << " " << len << ":'" << txt << "'";
+        } else {
+          ss << "(string too long)";
+        }
+        p += len;
+      }
+      break;
+    }
+    case T_CNAME:
+    case T_NS:
+    case T_PTR: {
+      int rc = ares_expand_name(*data, packet.data(), (int)packet.size(), &name, &enclen);
+      if (rc != ARES_SUCCESS) {
+        ss << "(error from ares_expand_name)";
+        break;
+      }
+      ss << " '" << name << "'";
+      ares_free_string(name);
+      break;
+    }
+    case T_MX:
+      if (rdatalen > 2) {
+        int rc = ares_expand_name(*data + 2, packet.data(), (int)packet.size(), &name, &enclen);
+        if (rc != ARES_SUCCESS) {
+          ss << "(error from ares_expand_name)";
+          break;
+        }
+        ss << " " << DNS__16BIT(*data) << " '" << name << "'";
+        ares_free_string(name);
+      } else {
+        ss << "(RR too short)";
+      }
+      break;
+    case T_SRV: {
+      if (rdatalen > 6) {
+        const byte* p = *data;
+        unsigned long prio = DNS__16BIT(p);
+        unsigned long weight = DNS__16BIT(p + 2);
+        unsigned long port = DNS__16BIT(p + 4);
+        p += 6;
+        int rc = ares_expand_name(p, packet.data(), (int)packet.size(), &name, &enclen);
+        if (rc != ARES_SUCCESS) {
+          ss << "(error from ares_expand_name)";
+          break;
+        }
+        ss << prio << " " << weight << " " << port << " '" << name << "'";
+        ares_free_string(name);
+      } else {
+        ss << "(RR too short)";
+      }
+      break;
+    }
+    case T_URI: {
+      if (rdatalen > 4) {
+        const byte* p = *data;
+        unsigned long prio = DNS__16BIT(p);
+        unsigned long weight = DNS__16BIT(p + 2);
+        p += 4;
+        std::string uri(p, p + (rdatalen - 4));
+        ss << prio << " " << weight << " '" << uri << "'";
+      } else {
+        ss << "(RR too short)";
+      }
+      break;
+    }
+    case T_SOA: {
+      const byte* p = *data;
+      int rc = ares_expand_name(p, packet.data(), (int)packet.size(), &name, &enclen);
+      if (rc != ARES_SUCCESS) {
+        ss << "(error from ares_expand_name)";
+        break;
+      }
+      ss << " '" << name << "'";
+      ares_free_string(name);
+      p += enclen;
+      rc = ares_expand_name(p, packet.data(), (int)packet.size(), &name, &enclen);
+      if (rc != ARES_SUCCESS) {
+        ss << "(error from ares_expand_name)";
+        break;
+      }
+      ss << " '" << name << "'";
+      ares_free_string(name);
+      p += enclen;
+      if ((p + 20) <= (*data + rdatalen)) {
+        unsigned long serial = DNS__32BIT(p);
+        unsigned long refresh = DNS__32BIT(p + 4);
+        unsigned long retry = DNS__32BIT(p + 8);
+        unsigned long expire = DNS__32BIT(p + 12);
+        unsigned long minimum = DNS__32BIT(p + 16);
+        ss << " " << serial << " " << refresh << " " << retry << " " << expire << " " << minimum;
+      } else {
+        ss << "(RR too short)";
+      }
+      break;
+    }
+    case T_NAPTR: {
+      if (rdatalen > 7) {
+        const byte* p = *data;
+        unsigned long order = DNS__16BIT(p);
+        unsigned long pref = DNS__16BIT(p + 2);
+        p += 4;
+        ss << order << " " << pref;
+
+        int len = *p++;
+        std::string flags(p, p + len);
+        ss << " " << flags;
+        p += len;
+
+        len = *p++;
+        std::string service(p, p + len);
+        ss << " '" << service << "'";
+        p += len;
+
+        len = *p++;
+        std::string regexp(p, p + len);
+        ss << " '" << regexp << "'";
+        p += len;
+
+        int rc = ares_expand_name(p, packet.data(), (int)packet.size(), &name, &enclen);
+        if (rc != ARES_SUCCESS) {
+          ss << "(error from ares_expand_name)";
+          break;
+        }
+        ss << " '" << name << "'";
+        ares_free_string(name);
+      } else {
+        ss << "(RR too short)";
+      }
+      break;
+    }
+    default:
+      ss << " " << HexDump(*data, rdatalen);
+      break;
+    }
+  }
+  *data += rdatalen;
+  *len -= rdatalen;
+
+  ss << "}";
+  return ss.str();
 }
