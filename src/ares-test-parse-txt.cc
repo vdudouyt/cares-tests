@@ -65,7 +65,7 @@ TEST_F(LibraryTest, ParseTxtExtReplyOK) {
   std::string expected2a = "txt2a";
   std::string expected2b("ABC\0ABC", 7);
   pkt.set_qid(0x1234).set_response().set_aa()
-    .add_question(new DNSQuestion("example.com", T_MX))
+    .add_question(new DNSQuestion("example.com", T_TXT))
     .add_answer(new DNSTxtRR("example.com", 100, {expected1}))
     .add_answer(new DNSTxtRR("example.com", 100, {expected2a, expected2b}));
   std::vector<byte> data = pkt.data();
@@ -79,12 +79,16 @@ TEST_F(LibraryTest, ParseTxtExtReplyOK) {
 
   struct ares_txt_ext* txt2 = txt->next;
   ASSERT_NE(nullptr, txt2);
-  std::vector<byte> rsp = std::vector<byte>(expected2a.data(), expected2a.data() + expected2a.size());
-  rsp.insert(rsp.end(), expected2b.data(), expected2b.data() + expected2b.size());
-  EXPECT_EQ(rsp,
+  EXPECT_EQ(std::vector<byte>(expected2a.data(), expected2a.data() + expected2a.size()),
             std::vector<byte>(txt2->txt, txt2->txt + txt2->length));
   EXPECT_EQ(1, txt2->record_start);
 
+  struct ares_txt_ext* txt3 = txt2->next;
+  ASSERT_NE(nullptr, txt3);
+  EXPECT_EQ(std::vector<byte>(expected2b.data(), expected2b.data() + expected2b.size()),
+            std::vector<byte>(txt3->txt, txt3->txt + txt3->length));
+  EXPECT_EQ(nullptr, txt3->next);
+  EXPECT_EQ(0, txt3->record_start);
   ares_free_data(txt);
 }
 
